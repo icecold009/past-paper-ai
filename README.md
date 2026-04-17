@@ -15,6 +15,8 @@ Build a simple Python workflow that:
 past-paper-ai/
   src/
     extract.py
+    extract_pdfs.py
+    utils.py
   data/
     raw_pdfs/
       paper1/
@@ -71,14 +73,16 @@ Put them here:
 Run:
 
 ```bash
-python src/extract.py
+python -m src.extract
 ```
 
 This creates:
 
 ```text
-data/extracted/9618_extracted.csv
+data/extracted/9618_pages.csv
 ```
+
+This first pass extracts one row per PDF page, keeping the filename metadata and raw page text for later question segmentation.
 
 ### 3. Add your Gemini API key
 Create a file called `.env` in the project root:
