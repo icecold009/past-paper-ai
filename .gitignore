@@ -1,6 +1,8 @@
 .env
+.venv/
 venv/
 __pycache__/
 *.pyc
 data/raw_pdfs/
 data/extracted/
+outputs/

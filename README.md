@@ -55,7 +55,7 @@ Rename PDFs exactly like this:
 Open a terminal in the project folder and install the libraries:
 
 ```bash
-pip install pdfplumber pandas google-generativeai
+pip install -r requirements.txt
 ```
 
 ## Step-by-step workflow
@@ -90,6 +90,8 @@ Create a file called `.env` in the project root:
 ```env
 GEMINI_API_KEY=your_api_key_here
 ```
+
+You can also copy `.env.example` to `.env` as a starting point.
 
 ## Current status
 At the moment, the project is set up for:
