@@ -91,8 +91,6 @@ Create a file called `.env` in the project root:
 GEMINI_API_KEY=your_api_key_here
 ```
 
-You can also copy `.env.example` to `.env` as a starting point.
-
 ## Current status
 At the moment, the project is set up for:
 - CAIE Computer Science 9618
