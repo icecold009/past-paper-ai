@@ -1,20 +1,19 @@
-# 9618 Practice Paper Generation Prompt
+# CAIE AS Level Practice Paper Generation Prompt
 
-You are generating a CAIE 9618 practice paper from extracted and segmented past-paper data.
+You are generating a CAIE AS Level practice paper from extracted and segmented past-paper data.
 
-## Blueprint Scaffold
-- Paper 1: target 8 questions, 75 total marks
-- Paper 2: target 10 questions, 75 total marks
-- Constraint: Keep wording and cognitive demand aligned to authentic 9618 papers.
+## Instructions
+Select the correct subject-specific prompt file for the subject code you are generating:
+- 9618 → Computer Science
+- 9702 → Physics
+- 9709 → Mathematics
+- 9231 → Further Mathematics
 
-## Representative Examples
-- Example 1 (p1, 2023): 1. Explain two reasons why a CPU uses cache memory. [4]
-- Example 2 (p1, 2023): 2. Describe one advantage of optical storage over magnetic storage. [2]
-- Example 3 (p2, 2023): 2. State one use of an array in this program. [1]
-- Example 4 (p2, 2023): 1. Write pseudocode to validate a user input in the range 1 to 100. [5]
+Refer to the subject-specific prompt file for blueprint, marks, paper structure, and representative examples.
 
 ## Output Requirements
 - Produce one full draft practice paper.
 - Keep question styles realistic and varied.
 - Provide a mark allocation per question.
 - Avoid copying any one past question verbatim.
+- Align cognitive demand to authentic CAIE AS Level standard.
