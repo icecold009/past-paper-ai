@@ -5,7 +5,7 @@ from typing import Any
 
 
 _FILENAME_RE = re.compile(
-    r"^(?P<subject>\d{4})_(?P<paper>p[12])_(?P<year>\d{4})_(?P<session_code>mj|on|fm)_(?P<variant>\d{2})_(?P<doc_type>qp|ms)\.pdf$",
+    r"^(?P<subject>\d{4})_(?P<paper>p\d+)_(?P<year>\d{4})_(?P<session_code>mj|on|fm)_(?P<variant>\d{2})_(?P<doc_type>qp|ms)\.pdf$",
     re.IGNORECASE,
 )
 
@@ -16,8 +16,8 @@ _SESSION_MAP = {
 }
 
 
-def parse_9618_filename(filename: str) -> dict[str, Any] | None:
-    """Parse a normalized CAIE 9618 PDF filename.
+def parse_caie_filename(filename: str) -> dict[str, Any] | None:
+    """Parse a normalized CAIE past-paper PDF filename.
 
     Expected format:
         9618_p1_2023_mj_11_qp.pdf

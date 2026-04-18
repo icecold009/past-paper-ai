@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.paths import BLUEPRINT_JSON, GENERATED_PROMPT_MD, REPRESENTATIVE_QUESTIONS_CSV
+from src.paths import blueprint_json_path, generated_prompt_md_path, representative_questions_csv_path
 
 
 def _format_examples(samples: pd.DataFrame) -> str:
@@ -22,10 +22,18 @@ def _format_examples(samples: pd.DataFrame) -> str:
 
 
 def build_prompt(
-    blueprint_json: Path = BLUEPRINT_JSON,
-    representative_csv: Path = REPRESENTATIVE_QUESTIONS_CSV,
-    output_prompt_md: Path = GENERATED_PROMPT_MD,
+    subject: str,
+    blueprint_json: Path | None = None,
+    representative_csv: Path | None = None,
+    output_prompt_md: Path | None = None,
 ) -> str:
+    if blueprint_json is None:
+        blueprint_json = blueprint_json_path(subject)
+    if representative_csv is None:
+        representative_csv = representative_questions_csv_path(subject)
+    if output_prompt_md is None:
+        output_prompt_md = generated_prompt_md_path(subject)
+
     if not blueprint_json.exists():
         raise FileNotFoundError(
             f"Missing blueprint JSON: {blueprint_json}. Run analysis first."
@@ -41,17 +49,23 @@ def build_prompt(
     example_block = _format_examples(samples)
 
     scaffold = blueprint.get("scaffold", {})
-    p1 = scaffold.get("p1", {})
-    p2 = scaffold.get("p2", {})
+    scaffold_lines: list[str] = []
+    for paper, details in sorted(scaffold.items()):
+        question_count = details.get("target_question_count", "N/A")
+        total_marks = details.get("target_total_marks", "N/A")
+        scaffold_lines.append(
+            f"- {paper.upper()}: target {question_count} questions, {total_marks} total marks"
+        )
 
-    prompt = f"""# 9618 Practice Paper Generation Prompt
+    scaffold_block = "\n".join(scaffold_lines) if scaffold_lines else "- No paper scaffold available yet."
 
-You are generating a CAIE 9618 practice paper from extracted and segmented past-paper data.
+    prompt = f"""# {subject} Practice Paper Generation Prompt
+
+You are generating a CAIE {subject} practice paper from extracted and segmented past-paper data.
 
 ## Blueprint Scaffold
-- Paper 1: target {p1.get('target_question_count', 'N/A')} questions, {p1.get('target_total_marks', 'N/A')} total marks
-- Paper 2: target {p2.get('target_question_count', 'N/A')} questions, {p2.get('target_total_marks', 'N/A')} total marks
-- Constraint: Keep wording and cognitive demand aligned to authentic 9618 papers.
+{scaffold_block}
+- Constraint: Keep wording and cognitive demand aligned to authentic {subject} papers.
 
 ## Representative Examples
 {example_block}
@@ -70,4 +84,4 @@ You are generating a CAIE 9618 practice paper from extracted and segmented past-
 
 
 if __name__ == "__main__":
-    build_prompt()
+    print("Use `python -m src.cli build-prompt --subject <code>` to build prompts.")

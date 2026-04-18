@@ -11,4 +11,4 @@ from src.extract_pdfs import extract_all_pdfs
 
 
 if __name__ == "__main__":
-    extract_all_pdfs()
+    print("Use `python -m src.cli extract --subject <code>` to run extraction.")

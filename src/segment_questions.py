@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.paths import PAGES_CSV, QUESTIONS_CSV
+from src.paths import pages_csv_path, questions_csv_path
 
 _QUESTION_START_RE = re.compile(r"(?m)^\s*(\d{1,2})[\.)]\s+")
 
@@ -31,13 +31,20 @@ def _split_questions(page_text: str) -> list[tuple[str, str]]:
     return chunks
 
 
-def _write_mock_pages_csv(pages_csv: Path) -> None:
+def _write_mock_pages_csv(subject: str, pages_csv: Path, mock_papers: list[str] | None = None) -> None:
     pages_csv.parent.mkdir(parents=True, exist_ok=True)
+    papers = [p.strip().lower() for p in (mock_papers or ["p1", "p2"]) if p.strip()]
+    if not papers:
+        papers = ["p1"]
+
+    first_paper = papers[0]
+    second_paper = papers[1] if len(papers) > 1 else papers[0]
+
     mock_rows = [
         {
-            "filename": "9618_p1_2023_mj_11_qp.pdf",
-            "subject": "9618",
-            "paper": "p1",
+            "filename": f"{subject}_{first_paper}_2023_mj_11_qp.pdf",
+            "subject": subject,
+            "paper": first_paper,
             "year": 2023,
             "session": "May/June",
             "variant": "11",
@@ -46,9 +53,9 @@ def _write_mock_pages_csv(pages_csv: Path) -> None:
             "text": "1. Explain two reasons why a CPU uses cache memory. [4]\n2. Describe one advantage of optical storage over magnetic storage. [2]",
         },
         {
-            "filename": "9618_p2_2023_mj_21_qp.pdf",
-            "subject": "9618",
-            "paper": "p2",
+            "filename": f"{subject}_{second_paper}_2023_mj_21_qp.pdf",
+            "subject": subject,
+            "paper": second_paper,
             "year": 2023,
             "session": "May/June",
             "variant": "21",
@@ -61,20 +68,27 @@ def _write_mock_pages_csv(pages_csv: Path) -> None:
 
 
 def segment_questions(
-    pages_csv: Path = PAGES_CSV,
-    output_csv: Path = QUESTIONS_CSV,
+    subject: str,
+    pages_csv: Path | None = None,
+    output_csv: Path | None = None,
     use_mock_if_missing: bool = False,
+    mock_papers: list[str] | None = None,
 ) -> pd.DataFrame:
+    if pages_csv is None:
+        pages_csv = pages_csv_path(subject)
+    if output_csv is None:
+        output_csv = questions_csv_path(subject)
+
     if not pages_csv.exists():
         if not use_mock_if_missing:
             raise FileNotFoundError(
                 f"Missing pages CSV: {pages_csv}. Run extraction first or pass mock mode."
             )
-        _write_mock_pages_csv(pages_csv)
+        _write_mock_pages_csv(subject, pages_csv, mock_papers=mock_papers)
 
     pages = pd.read_csv(pages_csv)
     if use_mock_if_missing and pages.empty:
-        _write_mock_pages_csv(pages_csv)
+        _write_mock_pages_csv(subject, pages_csv, mock_papers=mock_papers)
         pages = pd.read_csv(pages_csv)
     required_columns = {"filename", "paper", "year", "session", "variant", "doc_type", "page", "text"}
     missing = required_columns.difference(set(pages.columns))
@@ -92,6 +106,7 @@ def segment_questions(
             question_rows.append(
                 {
                     "question_id": f"{row.filename}::p{row.page}::q{idx}",
+                    "subject": subject,
                     "filename": row.filename,
                     "paper": row.paper,
                     "year": int(row.year),
@@ -108,6 +123,7 @@ def segment_questions(
         question_rows,
         columns=[
             "question_id",
+            "subject",
             "filename",
             "paper",
             "year",
@@ -127,4 +143,4 @@ def segment_questions(
 
 
 if __name__ == "__main__":
-    segment_questions()
+    print("Use `python -m src.cli segment --subject <code>` to run segmentation.")

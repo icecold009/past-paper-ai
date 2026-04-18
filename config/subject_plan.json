@@ -1,0 +1,36 @@
+{
+    "subjects": [
+        {
+            "code": "9618",
+            "name": "Computer Science",
+            "papers": [
+                "p1",
+                "p2"
+            ]
+        },
+        {
+            "code": "9709",
+            "name": "Mathematics",
+            "papers": [
+                "p1",
+                "p5"
+            ]
+        },
+        {
+            "code": "9231",
+            "name": "Further Mathematics",
+            "papers": [
+                "p1",
+                "p4"
+            ]
+        },
+        {
+            "code": "9702",
+            "name": "Physics",
+            "papers": [
+                "p1",
+                "p2"
+            ]
+        }
+    ]
+}

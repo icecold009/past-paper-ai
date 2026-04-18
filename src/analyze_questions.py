@@ -5,26 +5,41 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.paths import BLUEPRINT_JSON, QUESTION_STATS_CSV, QUESTIONS_CSV, REPRESENTATIVE_QUESTIONS_CSV
+from src.paths import (
+    blueprint_json_path,
+    question_stats_csv_path,
+    questions_csv_path,
+    representative_questions_csv_path,
+)
 
 
-def _build_blueprint_scaffold(questions: pd.DataFrame) -> dict[str, object]:
+def _build_blueprint_scaffold(
+    subject: str,
+    questions: pd.DataFrame,
+    planned_papers: list[str] | None = None,
+) -> dict[str, object]:
     available_papers = sorted({str(p).lower() for p in questions["paper"].dropna().unique().tolist()})
+    scaffold_papers = sorted({p.lower() for p in (planned_papers or available_papers)})
+
+    paper_scaffold: dict[str, dict[str, object]] = {}
+    for paper in scaffold_papers:
+        paper_rows = questions[questions["paper"].astype(str).str.lower() == paper]
+        if paper_rows.empty:
+            target_question_count = 8
+        else:
+            year_counts = paper_rows.groupby("year")["question_id"].count()
+            target_question_count = int(year_counts.median()) if not year_counts.empty else 8
+
+        paper_scaffold[paper] = {
+            "target_total_marks": 75,
+            "target_question_count": max(target_question_count, 1),
+            "notes": "Hardcoded scaffold for now; refine from measured stats later.",
+        }
+
     return {
-        "subject": "9618",
+        "subject": subject,
         "papers_available": available_papers,
-        "scaffold": {
-            "p1": {
-                "target_total_marks": 75,
-                "target_question_count": 8,
-                "notes": "Hardcoded scaffold for now; refine from measured stats later.",
-            },
-            "p2": {
-                "target_total_marks": 75,
-                "target_question_count": 10,
-                "notes": "Hardcoded scaffold for now; refine from measured stats later.",
-            },
-        },
+        "scaffold": paper_scaffold,
     }
 
 
@@ -48,11 +63,22 @@ def _representative_samples(questions: pd.DataFrame) -> pd.DataFrame:
 
 
 def analyze_questions(
-    questions_csv: Path = QUESTIONS_CSV,
-    stats_csv: Path = QUESTION_STATS_CSV,
-    representative_csv: Path = REPRESENTATIVE_QUESTIONS_CSV,
-    blueprint_json: Path = BLUEPRINT_JSON,
+    subject: str,
+    planned_papers: list[str] | None = None,
+    questions_csv: Path | None = None,
+    stats_csv: Path | None = None,
+    representative_csv: Path | None = None,
+    blueprint_json: Path | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, object]]:
+    if questions_csv is None:
+        questions_csv = questions_csv_path(subject)
+    if stats_csv is None:
+        stats_csv = question_stats_csv_path(subject)
+    if representative_csv is None:
+        representative_csv = representative_questions_csv_path(subject)
+    if blueprint_json is None:
+        blueprint_json = blueprint_json_path(subject)
+
     if not questions_csv.exists():
         raise FileNotFoundError(f"Missing questions CSV: {questions_csv}. Run segmentation first.")
 
@@ -75,7 +101,7 @@ def analyze_questions(
     )
 
     representative = _representative_samples(questions)
-    blueprint = _build_blueprint_scaffold(questions)
+    blueprint = _build_blueprint_scaffold(subject, questions, planned_papers=planned_papers)
 
     stats_csv.parent.mkdir(parents=True, exist_ok=True)
     representative_csv.parent.mkdir(parents=True, exist_ok=True)
@@ -92,4 +118,4 @@ def analyze_questions(
 
 
 if __name__ == "__main__":
-    analyze_questions()
+    print("Use `python -m src.cli analyze --subject <code>` to run analysis.")

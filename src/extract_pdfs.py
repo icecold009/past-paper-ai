@@ -11,15 +11,12 @@ if __package__ in {None, ""}:
     project_root = Path(__file__).resolve().parents[1]
     sys.path.insert(0, str(project_root))
 
-from src.utils import parse_9618_filename
-from src.paths import PAGES_CSV, RAW_PDF_DIRS
-
-
-OUTPUT_CSV = PAGES_CSV
+from src.paths import RAW_PDF_ROOT, pages_csv_path
+from src.utils import parse_caie_filename
 
 
 def extract_pdf_pages(pdf_path: Path) -> list[dict[str, Any]]:
-    metadata = parse_9618_filename(pdf_path.name)
+    metadata = parse_caie_filename(pdf_path.name)
     if metadata is None:
         print(f"Warning: skipping file with unexpected name: {pdf_path}")
         return []
@@ -43,21 +40,43 @@ def extract_pdf_pages(pdf_path: Path) -> list[dict[str, Any]]:
     return rows
 
 
-def extract_all_pdfs(raw_pdf_dirs: tuple[Path, ...] = RAW_PDF_DIRS) -> pd.DataFrame:
+def extract_subject_pdfs(
+    subject: str,
+    raw_pdf_root: Path = RAW_PDF_ROOT,
+    allowed_papers: set[str] | None = None,
+) -> pd.DataFrame:
     rows: list[dict[str, Any]] = []
     files_processed = 0
 
-    for raw_dir in raw_pdf_dirs:
-        if not raw_dir.exists():
-            print(f"Warning: directory not found, skipping: {raw_dir}")
+    if not raw_pdf_root.exists():
+        print(f"Warning: directory not found, skipping: {raw_pdf_root}")
+        return pd.DataFrame(
+            columns=[
+                "filename",
+                "subject",
+                "paper",
+                "year",
+                "session",
+                "variant",
+                "doc_type",
+                "page",
+                "text",
+            ]
+        )
+
+    for pdf_path in sorted(raw_pdf_root.rglob("*.pdf")):
+        metadata = parse_caie_filename(pdf_path.name)
+        if metadata is None or metadata["subject"] != subject:
+            continue
+        if allowed_papers is not None and metadata["paper"] not in allowed_papers:
             continue
 
-        for pdf_path in sorted(raw_dir.glob("*.pdf")):
-            file_rows = extract_pdf_pages(pdf_path)
-            if not file_rows:
-                continue
-            rows.extend(file_rows)
-            files_processed += 1
+        file_rows = extract_pdf_pages(pdf_path)
+        if not file_rows:
+            continue
+
+        rows.extend(file_rows)
+        files_processed += 1
 
     dataframe = pd.DataFrame(
         rows,
@@ -74,11 +93,30 @@ def extract_all_pdfs(raw_pdf_dirs: tuple[Path, ...] = RAW_PDF_DIRS) -> pd.DataFr
         ],
     )
 
-    OUTPUT_CSV.parent.mkdir(parents=True, exist_ok=True)
-    dataframe.to_csv(OUTPUT_CSV, index=False, encoding="utf-8")
-    print(f"Processed {files_processed} files and {len(dataframe)} rows into {OUTPUT_CSV}")
+    output_csv = pages_csv_path(subject)
+    output_csv.parent.mkdir(parents=True, exist_ok=True)
+    dataframe.to_csv(output_csv, index=False, encoding="utf-8")
+    print(f"Processed {files_processed} files and {len(dataframe)} rows into {output_csv}")
     return dataframe
 
 
+def extract_all_pdfs(
+    subjects: list[str],
+    raw_pdf_root: Path = RAW_PDF_ROOT,
+    subject_papers: dict[str, list[str]] | None = None,
+) -> dict[str, pd.DataFrame]:
+    extracted: dict[str, pd.DataFrame] = {}
+    for subject in subjects:
+        allowed = None
+        if subject_papers is not None and subject in subject_papers and subject_papers[subject]:
+            allowed = set(subject_papers[subject])
+        extracted[subject] = extract_subject_pdfs(
+            subject=subject,
+            raw_pdf_root=raw_pdf_root,
+            allowed_papers=allowed,
+        )
+    return extracted
+
+
 if __name__ == "__main__":
-    extract_all_pdfs()
+    print("Use `python -m src.cli extract --subject <code>` to run extraction.")
