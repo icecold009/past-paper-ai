@@ -174,6 +174,8 @@ Run:
 python -m src.cli generate
 ```
 
+Default model is `gemini-2.5-flash` (override with `--model`).
+
 Run for specific subjects:
 
 ```bash

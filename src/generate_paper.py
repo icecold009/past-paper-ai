@@ -12,7 +12,7 @@ def generate_practice_paper(
     subject: str,
     prompt_path: Path | None = None,
     output_path: Path | None = None,
-    model_name: str = "gemini-1.5-flash",
+    model_name: str = "gemini-2.5-flash",
     dry_run: bool = False,
 ) -> Path:
     if prompt_path is None:

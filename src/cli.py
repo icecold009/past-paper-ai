@@ -158,7 +158,7 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_subject_argument(generate_parser)
     generate_parser.add_argument(
         "--model",
-        default="gemini-1.5-flash",
+        default="gemini-2.5-flash",
         help="Gemini model name for generation",
     )
     generate_parser.add_argument(
