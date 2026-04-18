@@ -69,11 +69,18 @@ Put them here:
 - `data/raw_pdfs/paper2/qp/`
 - `data/raw_pdfs/paper2/ms/`
 
-### 2. Extract text
+### 2. Validate filenames and folders
 Run:
 
 ```bash
-python -m src.extract
+python -m src.cli validate
+```
+
+### 3. Extract text
+Run:
+
+```bash
+python -m src.cli extract
 ```
 
 This creates:
@@ -84,11 +91,66 @@ data/extracted/9618_pages.csv
 
 This first pass extracts one row per PDF page, keeping the filename metadata and raw page text for later question segmentation.
 
-### 3. Add your Gemini API key
+### 4. Segment questions
+Run:
+
+```bash
+python -m src.cli segment
+```
+
+This creates:
+
+```text
+data/extracted/9618_questions.csv
+```
+
+### 5. Build analysis artifacts
+Run:
+
+```bash
+python -m src.cli analyze
+```
+
+This creates:
+
+```text
+outputs/9618_question_stats.csv
+outputs/9618_representative_questions.csv
+outputs/9618_blueprint_scaffold.json
+```
+
+### 6. Build prompt scaffold
+Run:
+
+```bash
+python -m src.cli build-prompt
+```
+
+This creates:
+
+```text
+prompts/practice_paper_prompt.md
+```
+
+### 7. Add your Gemini API key
 Create a file called `.env` in the project root:
 
 ```env
 GEMINI_API_KEY=your_api_key_here
+```
+
+### Optional: run all pipeline stages at once
+
+```bash
+python -m src.cli run
+```
+
+If you have not added PDFs yet, you can still test downstream stages with mock rows:
+
+```bash
+python -m src.cli segment --mock
+# or full run mode
+python -m src.cli run --mock
 ```
 
 ## Current status
@@ -97,7 +159,8 @@ At the moment, the project is set up for:
 - Paper 1 (theory)
 - Paper 2 (programming)
 - Local PDF extraction
-- Future Gemini-based practice paper generation
+- Question segmentation and analysis scaffolding
+- Prompt scaffold generation
 
 ## Notes
 - This is meant to be fully free.

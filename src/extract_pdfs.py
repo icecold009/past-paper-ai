@@ -12,15 +12,10 @@ if __package__ in {None, ""}:
     sys.path.insert(0, str(project_root))
 
 from src.utils import parse_9618_filename
+from src.paths import PAGES_CSV, RAW_PDF_DIRS
 
 
-RAW_PDF_DIRS = (
-    Path("data/raw_pdfs/paper1/qp"),
-    Path("data/raw_pdfs/paper1/ms"),
-    Path("data/raw_pdfs/paper2/qp"),
-    Path("data/raw_pdfs/paper2/ms"),
-)
-OUTPUT_CSV = Path("data/extracted/9618_pages.csv")
+OUTPUT_CSV = PAGES_CSV
 
 
 def extract_pdf_pages(pdf_path: Path) -> list[dict[str, Any]]:
