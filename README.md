@@ -14,9 +14,17 @@ Build a simple Python workflow that:
 ```text
 past-paper-ai/
   src/
-    extract.py
-    extract_pdfs.py
+    cli.py
+    paths.py
     utils.py
+    subject_plan.py
+    extract_pdfs.py
+    segment_questions.py
+    analyze_questions.py
+    build_prompt.py
+    generate_paper.py
+  config/
+    subject_plan.json
   data/
     raw_pdfs/
       ... (any nested folders)
@@ -167,7 +175,14 @@ prompts/<subject>_practice_paper_prompt.md
 
 The blueprint scaffold in prompts is now generated dynamically from configured/observed papers per subject.
 
-### 7. Generate paper draft
+### 7. Add your Gemini API key
+Create a file called `.env` in the project root before running generation:
+
+```env
+GEMINI_API_KEY=your_api_key_here
+```
+
+### 8. Generate paper draft
 Run:
 
 ```bash
@@ -194,18 +209,13 @@ This creates:
 outputs/<subject>_practice_paper_draft.md
 ```
 
-### 8. Add your Gemini API key
-Create a file called `.env` in the project root:
-
-```env
-GEMINI_API_KEY=your_api_key_here
-```
-
-### Optional: run all pipeline stages at once
+### Optional: run pipeline stages 1–4 at once
 
 ```bash
 python -m src.cli run
 ```
+
+This runs `extract → segment → analyze → build-prompt` only. Run `generate` separately after adding your API key (step 7 above).
 
 By default, non-mock `run` now fails if no pages are extracted for a subject, to avoid silently producing empty artifacts.
 

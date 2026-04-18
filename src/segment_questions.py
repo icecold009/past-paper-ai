@@ -46,7 +46,7 @@ def _document_lines(pages: pd.DataFrame) -> list[tuple[int, str]]:
     lines: list[tuple[int, str]] = []
     for page_number_value, page_text_value in pages.sort_values("page")[ ["page", "text"] ].itertuples(index=False, name=None):
         page_number = int(page_number_value)
-        page_text = str(page_text_value) if page_text_value is not None else ""
+        page_text = "" if pd.isna(page_text_value) else str(page_text_value)
         for raw_line in page_text.splitlines():
             line = _normalize_line(raw_line)
             if _is_boilerplate_line(line):
@@ -60,7 +60,7 @@ def _split_questions(document_lines: list[tuple[int, str]]) -> list[tuple[str, i
         return []
 
     chunks: list[tuple[str, int, int, str]] = []
-    current_number: str | None = None
+    current_number: int | None = None
     current_start_page: int | None = None
     current_end_page: int | None = None
     current_lines: list[str] = []
@@ -68,16 +68,24 @@ def _split_questions(document_lines: list[tuple[int, str]]) -> list[tuple[str, i
     for page_number, line in document_lines:
         match = _QUESTION_START_RE.match(line)
         if match:
-            if current_number is not None and current_start_page is not None and current_end_page is not None:
-                question_text = "\n".join(current_lines).strip()
-                if question_text:
-                    chunks.append((current_number, current_start_page, current_end_page, question_text))
+            matched_number = int(match.group("number"))
 
-            current_number = match.group("number")
-            current_start_page = page_number
-            current_end_page = page_number
-            current_lines = [line]
-            continue
+            # Only start a new top-level question when the number strictly increases.
+            # This prevents sub-part lines like "2 (b) ..." from creating a duplicate chunk
+            # for question 2 after "2 (a) ..." already opened it.
+            if current_number is None or matched_number > current_number:
+                if current_number is not None and current_start_page is not None and current_end_page is not None:
+                    question_text = "\n".join(current_lines).strip()
+                    if question_text:
+                        chunks.append((str(current_number), current_start_page, current_end_page, question_text))
+
+                current_number = matched_number
+                current_start_page = page_number
+                current_end_page = page_number
+                # Store only the body text (not the "N. " prefix) for the opening line.
+                current_lines = [match.group("body")]
+                continue
+            # Same number seen again (e.g. a sub-part) — treat as continuation.
 
         if current_number is None:
             continue
@@ -88,7 +96,7 @@ def _split_questions(document_lines: list[tuple[int, str]]) -> list[tuple[str, i
     if current_number is not None and current_start_page is not None and current_end_page is not None:
         question_text = "\n".join(current_lines).strip()
         if question_text:
-            chunks.append((current_number, current_start_page, current_end_page, question_text))
+            chunks.append((str(current_number), current_start_page, current_end_page, question_text))
 
     return chunks
 
@@ -150,9 +158,10 @@ def segment_questions(
 
     pages = pd.read_csv(pages_csv)
     if use_mock_if_missing and pages.empty:
+        print(f"Warning: {pages_csv} exists but is empty; overwriting with mock data.")
         _write_mock_pages_csv(subject, pages_csv, mock_papers=mock_papers)
         pages = pd.read_csv(pages_csv)
-    required_columns = {"filename", "paper", "year", "session", "variant", "doc_type", "page", "text"}
+    required_columns = {"filename", "subject", "paper", "year", "session", "variant", "doc_type", "page", "text"}
     missing = required_columns.difference(set(pages.columns))
     if missing:
         missing_csv = ", ".join(sorted(missing))

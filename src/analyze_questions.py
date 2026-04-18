@@ -31,8 +31,17 @@ def _build_blueprint_scaffold(
             year_counts = paper_rows.groupby("year")["question_id"].count()
             target_question_count = int(year_counts.median()) if not year_counts.empty else 8
 
+        subject_marks = SUBJECT_PAPER_MARKS.get(subject, {})
+        marks = subject_marks.get(paper)
+        if marks is None:
+            print(
+                f"Warning: no configured mark total for {subject}/{paper.upper()}, defaulting to 75. "
+                "Add it to SUBJECT_PAPER_MARKS in src/subject_plan.py to suppress this warning."
+            )
+            marks = 75
+
         paper_scaffold[paper] = {
-            "target_total_marks": SUBJECT_PAPER_MARKS.get(subject, {}).get(paper, 75),
+            "target_total_marks": marks,
             "target_question_count": max(target_question_count, 1),
             "notes": "Hardcoded scaffold for now; refine from measured stats later.",
         }

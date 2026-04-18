@@ -15,28 +15,33 @@ from src.paths import RAW_PDF_ROOT, pages_csv_path
 from src.utils import parse_caie_filename
 
 
-def extract_pdf_pages(pdf_path: Path) -> list[dict[str, Any]]:
-    metadata = parse_caie_filename(pdf_path.name)
+def extract_pdf_pages(pdf_path: Path, metadata: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    if metadata is None:
+        metadata = parse_caie_filename(pdf_path.name)
     if metadata is None:
         print(f"Warning: skipping file with unexpected name: {pdf_path}")
         return []
 
     rows: list[dict[str, Any]] = []
-    with pdfplumber.open(pdf_path) as pdf:
-        for page_number, page in enumerate(pdf.pages, start=1):
-            rows.append(
-                {
-                    "filename": pdf_path.name,
-                    "subject": metadata["subject"],
-                    "paper": metadata["paper"],
-                    "year": metadata["year"],
-                    "session": metadata["session"],
-                    "variant": metadata["variant"],
-                    "doc_type": metadata["doc_type"],
-                    "page": page_number,
-                    "text": page.extract_text() or "",
-                }
-            )
+    try:
+        with pdfplumber.open(pdf_path) as pdf:
+            for page_number, page in enumerate(pdf.pages, start=1):
+                rows.append(
+                    {
+                        "filename": pdf_path.name,
+                        "subject": metadata["subject"],
+                        "paper": metadata["paper"],
+                        "year": metadata["year"],
+                        "session": metadata["session"],
+                        "variant": metadata["variant"],
+                        "doc_type": metadata["doc_type"],
+                        "page": page_number,
+                        "text": page.extract_text() or "",
+                    }
+                )
+    except Exception as exc:
+        print(f"Warning: could not read {pdf_path.name}: {exc}")
+        return []
     return rows
 
 
@@ -71,9 +76,12 @@ def extract_subject_pdfs(
         if allowed_papers is not None and metadata["paper"] not in allowed_papers:
             continue
 
-        file_rows = extract_pdf_pages(pdf_path)
+        file_rows = extract_pdf_pages(pdf_path, metadata=metadata)
         if not file_rows:
             continue
+
+        if all(not row.get("text") for row in file_rows):
+            print(f"Warning: {pdf_path.name} appears to be image-only (no extractable text)")
 
         rows.extend(file_rows)
         files_processed += 1

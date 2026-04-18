@@ -44,11 +44,10 @@ def generate_practice_paper(
     if not api_key:
         raise RuntimeError("GEMINI_API_KEY is missing. Add it to .env before running generate.")
 
-    import google.generativeai as genai
+    from google import genai
 
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel(model_name=model_name)
-    response = model.generate_content(prompt)
+    client = genai.Client(api_key=api_key)
+    response = client.models.generate_content(model=model_name, contents=prompt)
     generated_text = getattr(response, "text", None)
     if not generated_text:
         raise RuntimeError("Gemini returned an empty response.")

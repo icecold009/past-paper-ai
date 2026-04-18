@@ -65,5 +65,8 @@ Use this block as additional evidence from extracted data. Keep all subject-spec
 - P2: target 2 questions, 75 total marks
 
 ### Representative Examples From Extracted Data
-- Representative examples are currently mock placeholders. Add real PDFs and rerun extraction to populate subject-authentic examples.
+- Example 1 (p1, 2023): Explain two reasons why a CPU uses cache memory. [4]
+- Example 2 (p1, 2023): Describe one advantage of optical storage over magnetic storage. [2]
+- Example 3 (p2, 2023): State one use of an array in this program. [1]
+- Example 4 (p2, 2023): Write pseudocode to validate a user input in the range 1 to 100. [5]
 <!-- AUTO-DATA-END -->

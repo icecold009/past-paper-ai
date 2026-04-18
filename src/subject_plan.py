@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-SUBJECT_PLAN_PATH = Path("config/subject_plan.json")
+SUBJECT_PLAN_PATH = Path(__file__).resolve().parents[1] / "config/subject_plan.json"
 
 SUBJECT_PAPER_MARKS: dict[str, dict[str, int]] = {
     "9618": {"p1": 75, "p2": 75},

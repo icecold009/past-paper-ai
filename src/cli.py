@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 
+import pandas as pd
+
 from src.analyze_questions import analyze_questions
 from src.build_prompt import build_prompt
 from src.extract_pdfs import extract_all_pdfs
@@ -35,7 +37,7 @@ def resolve_subjects(requested_subjects: list[str] | None) -> list[str]:
 
 
 def validate_raw_pdfs(subjects: list[str] | None = None) -> int:
-    total_pdfs = 0
+    valid_pdfs = 0
     invalid_files: list[str] = []
     plan = load_subject_plan()
     selected_subjects = set(resolve_subjects(subjects)) if subjects else None
@@ -48,7 +50,6 @@ def validate_raw_pdfs(subjects: list[str] | None = None) -> int:
     for pdf_path in sorted(RAW_PDF_ROOT.rglob("*.pdf")):
         metadata = parse_caie_filename(pdf_path.name)
         if metadata is None:
-            total_pdfs += 1
             invalid_files.append(str(pdf_path))
             continue
 
@@ -59,14 +60,14 @@ def validate_raw_pdfs(subjects: list[str] | None = None) -> int:
             if metadata["paper"] not in set(plan[metadata["subject"]]):
                 continue
 
-        total_pdfs += 1
+        valid_pdfs += 1
 
-    if subjects and total_pdfs == 0:
+    if subjects and valid_pdfs == 0:
         print(f"No PDFs found for requested subjects: {', '.join(subjects)}")
         print("You can still proceed with --mock in later stages.")
         return 0
 
-    if total_pdfs == 0:
+    if valid_pdfs == 0 and not invalid_files:
         print("No PDFs found yet. You can still proceed with --mock in later stages.")
 
     if invalid_files:
@@ -78,12 +79,12 @@ def validate_raw_pdfs(subjects: list[str] | None = None) -> int:
     if selected_subjects:
         print(
             "Validation complete. "
-            f"PDFs found: {total_pdfs}. "
+            f"PDFs found: {valid_pdfs}. "
             f"Subjects: {', '.join(sorted(selected_subjects))}. "
             "Filename format is valid."
         )
     else:
-        print(f"Validation complete. PDFs found: {total_pdfs}. Filename format is valid.")
+        print(f"Validation complete. PDFs found: {valid_pdfs}. Filename format is valid.")
     return 0
 
 
@@ -93,7 +94,7 @@ def run_pipeline(
     subject_papers: dict[str, list[str]] | None = None,
 ) -> int:
     extracted = extract_all_pdfs(subjects=[subject], subject_papers=subject_papers)
-    extracted_rows = len(extracted.get(subject, []))
+    extracted_rows = len(extracted.get(subject, pd.DataFrame()))
     if not use_mock_if_missing and extracted_rows == 0:
         print(
             f"No extracted pages for {subject}. "
@@ -102,9 +103,9 @@ def run_pipeline(
         )
         return 1
 
-    mock_papers = subject_papers.get(subject) if subject_papers else None
-    segment_questions(subject=subject, use_mock_if_missing=use_mock_if_missing, mock_papers=mock_papers)
-    analyze_questions(subject=subject, planned_papers=mock_papers)
+    planned_papers = subject_papers.get(subject) if subject_papers else None
+    segment_questions(subject=subject, use_mock_if_missing=use_mock_if_missing, mock_papers=planned_papers)
+    analyze_questions(subject=subject, planned_papers=planned_papers)
     build_prompt(subject=subject)
     print(f"Pipeline completed for {subject}. Prompt ready at {generated_prompt_md_path(subject)}")
     return 0

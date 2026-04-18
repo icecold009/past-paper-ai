@@ -7,7 +7,6 @@ from pathlib import Path
 import pandas as pd
 
 from src.paths import blueprint_json_path, generated_prompt_md_path, representative_questions_csv_path
-from src.subject_plan import SUBJECT_PAPER_MARKS
 
 
 _AUTO_BLOCK_START = "<!-- AUTO-DATA-START -->"
@@ -87,14 +86,19 @@ def build_prompt(
 
     blueprint = json.loads(blueprint_json.read_text(encoding="utf-8"))
     samples = pd.read_csv(representative_csv)
+    required_sample_columns = {"question_text", "paper", "year"}
+    missing_sample = required_sample_columns.difference(set(samples.columns))
+    if missing_sample:
+        raise ValueError(
+            f"Representative CSV missing required columns: {', '.join(sorted(missing_sample))}"
+        )
     example_block = _format_examples(samples)
 
     scaffold = blueprint.get("scaffold", {})
-    subject_marks = SUBJECT_PAPER_MARKS.get(subject, {})
     scaffold_lines: list[str] = []
     for paper, details in sorted(scaffold.items()):
         question_count = details.get("target_question_count", "N/A")
-        total_marks = subject_marks.get(paper.lower(), details.get("target_total_marks", "N/A"))
+        total_marks = details.get("target_total_marks", "N/A")
         scaffold_lines.append(
             f"- {paper.upper()}: target {question_count} questions, {total_marks} total marks"
         )

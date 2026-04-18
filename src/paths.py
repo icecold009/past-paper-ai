@@ -2,13 +2,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-RAW_PDF_ROOT = Path("data/raw_pdfs")
+_PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
-EXTRACTED_DIR = Path("data/extracted")
+RAW_PDF_ROOT = _PROJECT_ROOT / "data/raw_pdfs"
 
-OUTPUTS_DIR = Path("outputs")
+EXTRACTED_DIR = _PROJECT_ROOT / "data/extracted"
 
-PROMPTS_DIR = Path("prompts")
+OUTPUTS_DIR = _PROJECT_ROOT / "outputs"
+
+PROMPTS_DIR = _PROJECT_ROOT / "prompts"
 
 
 def pages_csv_path(subject: str) -> Path:
