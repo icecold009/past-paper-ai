@@ -7,17 +7,11 @@ from pathlib import Path
 import pandas as pd
 
 from src.paths import blueprint_json_path, generated_prompt_md_path, representative_questions_csv_path
+from src.subject_plan import SUBJECT_PAPER_MARKS
 
 
 _AUTO_BLOCK_START = "<!-- AUTO-DATA-START -->"
 _AUTO_BLOCK_END = "<!-- AUTO-DATA-END -->"
-
-_SUBJECT_PAPER_MARKS: dict[str, dict[str, int]] = {
-    "9618": {"p1": 75, "p2": 75},
-    "9702": {"p1": 40, "p2": 60},
-    "9709": {"p1": 75, "p5": 50},
-    "9231": {"p1": 75, "p4": 50},
-}
 
 _MOCK_EXAMPLE_TEXTS = {
     "1. Explain two reasons why a CPU uses cache memory. [4]",
@@ -96,7 +90,7 @@ def build_prompt(
     example_block = _format_examples(samples)
 
     scaffold = blueprint.get("scaffold", {})
-    subject_marks = _SUBJECT_PAPER_MARKS.get(subject, {})
+    subject_marks = SUBJECT_PAPER_MARKS.get(subject, {})
     scaffold_lines: list[str] = []
     for paper, details in sorted(scaffold.items()):
         question_count = details.get("target_question_count", "N/A")

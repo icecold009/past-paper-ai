@@ -11,6 +11,7 @@ from src.paths import (
     questions_csv_path,
     representative_questions_csv_path,
 )
+from src.subject_plan import SUBJECT_PAPER_MARKS
 
 
 def _build_blueprint_scaffold(
@@ -31,7 +32,7 @@ def _build_blueprint_scaffold(
             target_question_count = int(year_counts.median()) if not year_counts.empty else 8
 
         paper_scaffold[paper] = {
-            "target_total_marks": 75,
+            "target_total_marks": SUBJECT_PAPER_MARKS.get(subject, {}).get(paper, 75),
             "target_question_count": max(target_question_count, 1),
             "notes": "Hardcoded scaffold for now; refine from measured stats later.",
         }

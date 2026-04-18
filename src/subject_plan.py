@@ -5,6 +5,13 @@ from pathlib import Path
 
 SUBJECT_PLAN_PATH = Path("config/subject_plan.json")
 
+SUBJECT_PAPER_MARKS: dict[str, dict[str, int]] = {
+    "9618": {"p1": 75, "p2": 75},
+    "9702": {"p1": 40, "p2": 60},
+    "9709": {"p1": 75, "p5": 50},
+    "9231": {"p1": 75, "p4": 50},
+}
+
 
 def load_subject_plan(path: Path = SUBJECT_PLAN_PATH) -> dict[str, list[str]]:
     if not path.exists():
