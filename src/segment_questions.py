@@ -7,26 +7,88 @@ import pandas as pd
 
 from src.paths import pages_csv_path, questions_csv_path
 
-_QUESTION_START_RE = re.compile(r"(?m)^\s*(\d{1,2})[\.)]\s+")
+_QUESTION_START_RE = re.compile(
+    r"^\s*(?P<number>\d{1,2})(?:\s*[\.)])?(?:\s*\([a-z]\))?(?:\s*\([ivxlcdm]+\))?\s+(?P<body>\S.*)$",
+    re.IGNORECASE,
+)
+
+_BOILERPLATE_PATTERNS = (
+    re.compile(r"^\s*\d+\s*$"),
+    re.compile(r"^\s*page\s*\d+\s*$", re.IGNORECASE),
+    re.compile(r"^\s*turn over\s*$", re.IGNORECASE),
+    re.compile(r"^\s*please turn over\s*$", re.IGNORECASE),
+    re.compile(r"^\s*continued on next page\s*$", re.IGNORECASE),
+    re.compile(r"^\s*end of paper\s*$", re.IGNORECASE),
+    re.compile(r"^\s*cambridge international\b", re.IGNORECASE),
+    re.compile(r"^\s*do not write in this margin\b", re.IGNORECASE),
+)
 
 
-def _split_questions(page_text: str) -> list[tuple[str, str]]:
-    text = (page_text or "").strip()
-    if not text:
+def _normalize_line(line: str) -> str:
+    return re.sub(r"\s+", " ", line).strip()
+
+
+def _is_boilerplate_line(line: str) -> bool:
+    if not line:
+        return True
+
+    for pattern in _BOILERPLATE_PATTERNS:
+        if pattern.search(line):
+            return True
+
+    if not re.search(r"[A-Za-z]", line):
+        return True
+
+    return False
+
+
+def _document_lines(pages: pd.DataFrame) -> list[tuple[int, str]]:
+    lines: list[tuple[int, str]] = []
+    for page_number_value, page_text_value in pages.sort_values("page")[ ["page", "text"] ].itertuples(index=False, name=None):
+        page_number = int(page_number_value)
+        page_text = str(page_text_value) if page_text_value is not None else ""
+        for raw_line in page_text.splitlines():
+            line = _normalize_line(raw_line)
+            if _is_boilerplate_line(line):
+                continue
+            lines.append((page_number, line))
+    return lines
+
+
+def _split_questions(document_lines: list[tuple[int, str]]) -> list[tuple[str, int, int, str]]:
+    if not document_lines:
         return []
 
-    matches = list(_QUESTION_START_RE.finditer(text))
-    if not matches:
-        return [("", text)]
+    chunks: list[tuple[str, int, int, str]] = []
+    current_number: str | None = None
+    current_start_page: int | None = None
+    current_end_page: int | None = None
+    current_lines: list[str] = []
 
-    chunks: list[tuple[str, str]] = []
-    for idx, match in enumerate(matches):
-        start = match.start()
-        end = matches[idx + 1].start() if idx + 1 < len(matches) else len(text)
-        question_number = match.group(1)
-        question_text = text[start:end].strip()
+    for page_number, line in document_lines:
+        match = _QUESTION_START_RE.match(line)
+        if match:
+            if current_number is not None and current_start_page is not None and current_end_page is not None:
+                question_text = "\n".join(current_lines).strip()
+                if question_text:
+                    chunks.append((current_number, current_start_page, current_end_page, question_text))
+
+            current_number = match.group("number")
+            current_start_page = page_number
+            current_end_page = page_number
+            current_lines = [line]
+            continue
+
+        if current_number is None:
+            continue
+
+        current_lines.append(line)
+        current_end_page = page_number
+
+    if current_number is not None and current_start_page is not None and current_end_page is not None:
+        question_text = "\n".join(current_lines).strip()
         if question_text:
-            chunks.append((question_number, question_text))
+            chunks.append((current_number, current_start_page, current_end_page, question_text))
 
     return chunks
 
@@ -97,22 +159,27 @@ def segment_questions(
         raise ValueError(f"Pages CSV missing required columns: {missing_csv}")
 
     question_rows: list[dict[str, object]] = []
-    for row in pages.itertuples(index=False):
-        if str(row.doc_type).lower() != "qp":
-            continue
+    document_columns = ["filename", "subject", "paper", "year", "session", "variant", "doc_type"]
+    qp_pages = pages[pages["doc_type"].astype(str).str.lower() == "qp"]
 
-        chunks = _split_questions(str(row.text) if row.text is not None else "")
-        for idx, (question_number, question_text) in enumerate(chunks, start=1):
+    for document_key, document_pages in qp_pages.groupby(document_columns, dropna=False):
+        filename, _, paper, _, _, _, _ = document_key
+        lines = _document_lines(document_pages)
+        chunks = _split_questions(lines)
+
+        for idx, (question_number, start_page, end_page, question_text) in enumerate(chunks, start=1):
+            page_label = str(start_page) if start_page == end_page else f"{start_page}-{end_page}"
             question_rows.append(
                 {
-                    "question_id": f"{row.filename}::p{row.page}::q{idx}",
+                    "question_id": f"{filename}::p{page_label}::q{idx}",
                     "subject": subject,
-                    "filename": row.filename,
-                    "paper": row.paper,
-                    "year": int(row.year),
-                    "session": row.session,
-                    "variant": row.variant,
-                    "page": int(row.page),
+                    "filename": filename,
+                    "paper": paper,
+                    "year": int(document_pages.iloc[0].year),
+                    "session": document_pages.iloc[0].session,
+                    "variant": document_pages.iloc[0].variant,
+                    "page": int(start_page),
+                    "page_end": int(end_page),
                     "question_number": question_number,
                     "question_text": question_text,
                     "question_text_length": len(question_text),
@@ -130,6 +197,7 @@ def segment_questions(
             "session",
             "variant",
             "page",
+            "page_end",
             "question_number",
             "question_text",
             "question_text_length",
