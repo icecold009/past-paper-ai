@@ -82,3 +82,16 @@ Topics (assumes 9709 P5 and P6 content):
 - Questions may draw on assumed prior knowledge from 9709
 - Do not copy any past question verbatim
 - Align difficulty to genuine CAIE 9231 AS Level standard
+
+<!-- AUTO-DATA-START -->
+## Data-Driven Addendum (Auto-Generated)
+
+Use this block as additional evidence from extracted data. Keep all subject-specific syllabus constraints from the handcrafted prompt above.
+
+### Blueprint Scaffold Snapshot
+- P1: target 2 questions, 75 total marks
+- P4: target 2 questions, 50 total marks
+
+### Representative Examples From Extracted Data
+- Representative examples are currently mock placeholders. Add real PDFs and rerun extraction to populate subject-authentic examples.
+<!-- AUTO-DATA-END -->

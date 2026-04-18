@@ -50,3 +50,16 @@ MF19 formulae list is provided in all examinations. Answers should be given to 3
 - Vary question types: show that, find, prove, sketch, state, calculate.
 - Questions may draw on prior IGCSE/O Level knowledge where appropriate.
 - Avoid copying any one past question verbatim.
+
+<!-- AUTO-DATA-START -->
+## Data-Driven Addendum (Auto-Generated)
+
+Use this block as additional evidence from extracted data. Keep all subject-specific syllabus constraints from the handcrafted prompt above.
+
+### Blueprint Scaffold Snapshot
+- P1: target 2 questions, 75 total marks
+- P5: target 2 questions, 50 total marks
+
+### Representative Examples From Extracted Data
+- Representative examples are currently mock placeholders. Add real PDFs and rerun extraction to populate subject-authentic examples.
+<!-- AUTO-DATA-END -->

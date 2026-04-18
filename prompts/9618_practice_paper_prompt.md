@@ -54,3 +54,16 @@ Follow CAIE 9618 pseudocode conventions:
 - Provide mark allocation per question/sub-question.
 - Include a range of question types: define, describe, explain, calculate, construct, write pseudocode.
 - Avoid copying any one past question verbatim.
+
+<!-- AUTO-DATA-START -->
+## Data-Driven Addendum (Auto-Generated)
+
+Use this block as additional evidence from extracted data. Keep all subject-specific syllabus constraints from the handcrafted prompt above.
+
+### Blueprint Scaffold Snapshot
+- P1: target 2 questions, 75 total marks
+- P2: target 2 questions, 75 total marks
+
+### Representative Examples From Extracted Data
+- Representative examples are currently mock placeholders. Add real PDFs and rerun extraction to populate subject-authentic examples.
+<!-- AUTO-DATA-END -->

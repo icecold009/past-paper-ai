@@ -71,3 +71,16 @@ You are generating a CAIE 9702 AS Level Physics practice paper from extracted an
 - P1: distribute questions across all 11 topics; ensure each MCQ has one correct and three distinct, plausible distractors.
 - P2: include a range of question types — define, explain, calculate, sketch, describe experiment.
 - Avoid copying any one past question verbatim.
+
+<!-- AUTO-DATA-START -->
+## Data-Driven Addendum (Auto-Generated)
+
+Use this block as additional evidence from extracted data. Keep all subject-specific syllabus constraints from the handcrafted prompt above.
+
+### Blueprint Scaffold Snapshot
+- P1: target 2 questions, 40 total marks
+- P2: target 2 questions, 60 total marks
+
+### Representative Examples From Extracted Data
+- Representative examples are currently mock placeholders. Add real PDFs and rerun extraction to populate subject-authentic examples.
+<!-- AUTO-DATA-END -->
