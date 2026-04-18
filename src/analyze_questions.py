@@ -52,11 +52,17 @@ def _representative_samples(questions: pd.DataFrame) -> pd.DataFrame:
     for paper, paper_df in questions.groupby("paper"):
         working = paper_df.sort_values("question_text_length")
         n = len(working)
-        if n == 1:
-            sampled_frames.append(working.head(1))
+        if n <= 5:
+            sampled_frames.append(working)
             continue
 
-        indexes = sorted({0, n // 2, n - 1})
+        target_count = min(8, max(5, round(n ** 0.5)))
+        indexes = sorted(
+            {
+                round(i * (n - 1) / (target_count - 1))
+                for i in range(target_count)
+            }
+        )
         sampled_frames.append(working.iloc[indexes])
 
     combined = pd.concat(sampled_frames, ignore_index=True)
@@ -89,6 +95,9 @@ def analyze_questions(
     if missing:
         missing_csv = ", ".join(sorted(missing))
         raise ValueError(f"Questions CSV missing required columns: {missing_csv}")
+
+    if "doc_type" in questions.columns:
+        questions = questions[questions["doc_type"].astype(str).str.lower() == "qp"].copy()
 
     stats = (
         questions.groupby(["paper", "year"], dropna=False)
