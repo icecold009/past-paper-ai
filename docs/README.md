@@ -21,6 +21,7 @@ AI chat website.
 5. [Backend Schema](05_backend_schema.md) — current SQLAlchemy/Alembic schema plus required curriculum, evidence, recommendation, and school-scope extensions.
 6. [Implementation Plan](06_implementation_plan.md) — phase gates centered on the diagnosis → targeted help → improvement loop.
 7. [Security Requirements](07_security_requirements.md) — threat model and requirements for frontend, API, database, auth, RLS, student privacy, model safety, deployment, operations, and recovery.
+8. [Project Backlog](08_backlog.md) — incomplete tasks, blockers, product decisions, priorities, dependencies, and acceptance criteria.
 
 ## Current implementation boundary
 
