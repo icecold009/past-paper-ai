@@ -4,6 +4,8 @@ import argparse
 
 from src.analyze_questions import analyze_questions
 from src.build_prompt import build_prompt
+from src.db.ingest import ingest_subject
+from src.db.session import create_db_engine
 from src.extract_pdfs import extract_all_pdfs
 from src.generate_paper import generate_practice_paper
 from src.match_mark_schemes import match_mark_schemes
@@ -198,6 +200,13 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Print prompts and skip Gemini calls",
     )
 
+    ingest_parser = subparsers.add_parser("ingest", help="Load tagged questions into the database")
+    _add_subject_argument(ingest_parser)
+    ingest_parser.add_argument(
+        "--database-url",
+        help="Override DATABASE_URL from .env",
+    )
+
     run_parser = subparsers.add_parser("run", help="Run extract -> segment -> analyze -> build-prompt")
     _add_subject_argument(run_parser)
     run_parser.add_argument(
@@ -288,6 +297,16 @@ def main() -> int:
                 dry_run=args.dry_run,
                 delay_seconds=args.delay,
             )
+        return 0
+
+    if args.command == "ingest":
+        engine = create_db_engine(args.database_url)
+        try:
+            for subject in subjects:
+                summary = ingest_subject(subject, engine=engine)
+                print(f"Ingested {subject}: {summary}")
+        finally:
+            engine.dispose()
         return 0
 
     parser.print_help()
