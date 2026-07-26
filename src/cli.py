@@ -6,6 +6,7 @@ from src.analyze_questions import analyze_questions
 from src.build_prompt import build_prompt
 from src.extract_pdfs import extract_all_pdfs
 from src.generate_paper import generate_practice_paper
+from src.match_mark_schemes import match_mark_schemes
 from src.paths import RAW_PDF_ROOT, generated_prompt_md_path
 from src.segment_questions import segment_questions
 from src.subject_plan import load_subject_plan
@@ -144,6 +145,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Create and use mock pages CSV when extraction output is missing",
     )
 
+    match_parser = subparsers.add_parser(
+        "match", help="Pair question-paper and mark-scheme page text"
+    )
+    _add_subject_argument(match_parser)
+
     analyze_parser = subparsers.add_parser(
         "analyze", help="Create stats, representative samples, and blueprint scaffold"
     )
@@ -204,6 +210,11 @@ def main() -> int:
         for subject in subjects:
             mock_papers = subject_plan.get(subject)
             segment_questions(subject=subject, use_mock_if_missing=args.mock, mock_papers=mock_papers)
+        return 0
+
+    if args.command == "match":
+        for subject in subjects:
+            match_mark_schemes(subject=subject)
         return 0
 
     if args.command == "analyze":
