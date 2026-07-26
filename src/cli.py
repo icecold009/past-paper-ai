@@ -10,6 +10,7 @@ from src.match_mark_schemes import match_mark_schemes
 from src.paths import RAW_PDF_ROOT, generated_prompt_md_path
 from src.segment_questions import segment_questions
 from src.subject_plan import load_subject_plan
+from src.tag_questions import tag_questions
 from src.utils import parse_caie_filename
 
 
@@ -173,6 +174,30 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Skip Gemini call and write a local dry-run draft",
     )
 
+    tag_parser = subparsers.add_parser("tag", help="Classify questions and extract mark-scheme points")
+    _add_subject_argument(tag_parser)
+    tag_parser.add_argument(
+        "--model",
+        default="gemini-2.5-flash",
+        help="Gemini model name for tagging",
+    )
+    tag_parser.add_argument(
+        "--limit",
+        type=int,
+        help="Limit the number of question rows and matched pairs processed",
+    )
+    tag_parser.add_argument(
+        "--delay",
+        type=float,
+        default=1.0,
+        help="Seconds between Gemini requests and retries (default: 1.0)",
+    )
+    tag_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print prompts and skip Gemini calls",
+    )
+
     run_parser = subparsers.add_parser("run", help="Run extract -> segment -> analyze -> build-prompt")
     _add_subject_argument(run_parser)
     run_parser.add_argument(
@@ -253,6 +278,17 @@ def main() -> int:
                 has_failure = True
                 print(f"Generation failed for {subject}: {exc}")
         return 1 if has_failure else 0
+
+    if args.command == "tag":
+        for subject in subjects:
+            tag_questions(
+                subject=subject,
+                model_name=args.model,
+                limit=args.limit,
+                dry_run=args.dry_run,
+                delay_seconds=args.delay,
+            )
+        return 0
 
     parser.print_help()
     return 1

@@ -23,6 +23,10 @@ def qp_ms_pairs_csv_path(subject: str) -> Path:
     return EXTRACTED_DIR / f"{subject}_qp_ms_pairs.csv"
 
 
+def tagged_questions_csv_path(subject: str) -> Path:
+    return EXTRACTED_DIR / f"{subject}_tagged_questions.csv"
+
+
 def question_stats_csv_path(subject: str) -> Path:
     return OUTPUTS_DIR / f"{subject}_question_stats.csv"
 
