@@ -162,6 +162,7 @@ class PaperQuestion(Base):
     paper_id: Mapped[int] = mapped_column(ForeignKey("papers.id", ondelete="CASCADE"), primary_key=True)
     question_id: Mapped[int] = mapped_column(ForeignKey("questions.id", ondelete="CASCADE"), primary_key=True)
     position: Mapped[int] = mapped_column(Integer, nullable=False)
+    source_type: Mapped[str] = mapped_column(String(32), nullable=False, default="real", server_default="real")
 
     paper: Mapped[Paper] = relationship(back_populates="question_links")
     question: Mapped[Question] = relationship(back_populates="paper_links")

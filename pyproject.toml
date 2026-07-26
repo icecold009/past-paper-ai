@@ -9,16 +9,18 @@ description = "CAIE past-paper to practice-paper pipeline"
 requires-python = ">=3.11"
 dependencies = [
     "alembic>=1.13",
+    "fastapi>=0.110",
     "google-generativeai",
     "pandas",
     "pdfplumber",
     "psycopg[binary]>=3.1",
     "python-dotenv",
     "SQLAlchemy>=2.0",
+    "uvicorn[standard]>=0.29",
 ]
 
 [project.scripts]
 past-paper-ai = "src.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["src*"]
+include = ["api*", "src*"]
