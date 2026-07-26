@@ -1,6 +1,6 @@
 # Past Paper AI Documentation
 
-This directory contains the seven project reference documents requested for
+This directory contains the project reference documents requested for
 `past-paper-ai`. They were reviewed against the repository structure and current
 implementation on 2026-07-26.
 
@@ -23,6 +23,8 @@ AI chat website.
 7. [Security Requirements](07_security_requirements.md) — threat model and requirements for frontend, API, database, auth, RLS, student privacy, model safety, deployment, operations, and recovery.
 8. [Project Backlog](08_backlog.md) — incomplete tasks, blockers, product decisions, priorities, dependencies, and acceptance criteria.
 
+9. [v1 API](09_api_v1.md) - local FastAPI run instructions, endpoint contracts, and v1 limitations.
+
 ## Current implementation boundary
 
 The repository currently provides a local Python batch pipeline:
@@ -36,7 +38,7 @@ does not automatically execute every phase; matching, tagging, generation, and
 database ingestion remain explicit reviewable operations.
 
 Current artifacts live under `data/extracted/`, `outputs/`, and `prompts/`.
-The future web application, API, authentication, RLS, production PostgreSQL,
+The v1 FastAPI service now exists alongside the batch pipeline. Authentication,
 deployment, monitoring, and CDN are documented as planned work, not existing
 features. The current code does not yet contain the target school’s Grade 8–12
 curriculum map, diagnostic engine, chapter-level weakness profile, or

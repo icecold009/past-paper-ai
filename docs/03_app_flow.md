@@ -5,11 +5,11 @@
 This document maps the flows that exist in the repository and the navigation planned for the future Cambridge Grades 8–12 student application.
 
 - Reviewed against repository: 2026-07-26
-- Current user interface: command line only
-- Future interface: web application backed by an API
-- No frontend routes, FastAPI routes, authentication screens, or deployed navigation exist yet
+- Current user interface: functional Vite frontend backed by the v1 API
+- Future interface: authenticated web application backed by production services
+- A v1 Vite frontend now covers subject selection, question answering, and grading feedback; authentication and deployed navigation remain planned
 
-The offline operator flow is implemented in phases. The student navigation below is a target flow and must not be mistaken for shipped functionality. The defining student flow is diagnosis → targeted chapter help → evidence of improvement, not open-ended AI chat.
+The offline operator flow is implemented in phases. The student navigation below mixes the shipped v1 slice with planned authenticated flows. The defining student flow is diagnosis → targeted chapter help → evidence of improvement, not open-ended AI chat.
 
 ## 2. Offline data flow
 
@@ -350,6 +350,7 @@ Unauthenticated visitors may eventually see public product information and possi
 | Match QP/MS via CLI | Implemented; current sample lacks MS rows |
 | Gemini dry-run/limited tag flow | Implemented; real run requires API key and manual review |
 | Alembic migration and idempotent ingestion | Implemented; SQLite verified, Postgres deployment pending |
+| Vite subject picker, mastery dashboard, question screen, and feedback screen | v1 implemented; full auth, session persistence, and visual QA remain |
 | Student login and dashboard | Planned |
 | Grade/stage onboarding and school curriculum selection | Planned |
 | Diagnostic baseline and chapter weakness profile | Planned |

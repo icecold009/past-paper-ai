@@ -255,7 +255,7 @@ GROUP BY q.id, q.raw_text, q.marks
 HAVING COUNT(p.id) = 0;
 ```
 
-## 9. Future API and application rules
+## 9. API and application rules
 
 - API responses should expose stable IDs plus source metadata.
 - User-owned resources require server-side ownership checks.
@@ -264,6 +264,11 @@ HAVING COUNT(p.id) = 0;
 - Tag/model version and review status should be added before tags drive high-impact recommendations.
 - Question source revisions should be versioned or snapshotted.
 - Search/filter indexes should be added only after query patterns are measured.
+
+The v1 implementation is in `api/` and exposes subjects, filtered questions, mark-scheme-aware answer attempts, and
+subject-scoped mastery cells. It validates request/response payloads with Pydantic and returns explicit errors for
+missing users, questions, mark schemes, or unavailable grading results. Full authentication, idempotency tokens,
+and production ownership/RLS enforcement remain future work.
 
 ## 10. Future security and operations requirements
 

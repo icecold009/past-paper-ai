@@ -8,7 +8,7 @@ This document is the technical reference for the current `past-paper-ai` reposit
 - Product target: a school-focused Cambridge Grades 8–12 learning system that diagnoses weak subjects/chapters and serves targeted activities
 - Current architecture: local-first Python batch pipeline with CSV/JSON artifacts
 - Database phase: SQLAlchemy models, Alembic migration, and idempotent ingestion are implemented and locally verified with SQLite
-- Not yet implemented: FastAPI, frontend, production Postgres deployment, auth, RLS, queues, observability platform, and CDN
+- Implemented in v1: a bounded FastAPI read/attempt/mastery service and functional Vite frontend; still not implemented: production Postgres deployment, auth, RLS, queues, observability platform, and CDN
 
 The implementation plan is intentionally phased. A future service must consume stable intermediate artifacts and database contracts rather than bypassing source validation.
 
@@ -71,6 +71,10 @@ src/
     models.py                       SQLAlchemy schema
     session.py                       DATABASE_URL/session setup
     ingest.py                       tagged CSV and pair ingestion
+api/
+  main.py                           FastAPI routes and lazy database dependency
+  schemas.py                        Pydantic request/response contracts
+  grading.py                        validated Gemini answer-grading boundary
 tests/                              unit tests and mock fixtures
 alembic/
   env.py                            migration runtime configuration
@@ -279,8 +283,8 @@ Warnings are appropriate for missing QP/MS counterparts, skipped malformed model
 
 ## 12. Current technical gaps
 
-- There is no API boundary or request validation layer yet.
-- There is no frontend or client-side state model.
+- The v1 API boundary and request validation layer exist; production authentication, idempotency, request IDs, and RLS remain open.
+- The frontend is a functional Vite slice; durable sessions, production auth, and broader accessibility/visual QA remain open.
 - There is no production Postgres connection verification in this workspace.
 - Tagged output is currently blocked in real mode when `GEMINI_API_KEY` is absent; the dry-run path is available.
 - The current sample page data contains QP rows but no MS rows, so the pair output has no matched records yet.

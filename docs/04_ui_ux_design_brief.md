@@ -2,7 +2,7 @@
 
 ## 1. Status
 
-This is the proposed design direction for the future student application. The current repository is CLI-only, so none of the visual tokens or screens below should be described as implemented.
+This is the design direction for the student application. A v1 functional Vite frontend now implements the subject picker, question screen, and grading feedback loop; the broader visual system and manual accessibility QA remain ongoing.
 
 - Reviewed against repository: 2026-07-26
 - Primary product context: Cambridge Grades 8–12 school learning, with chapter-level weakness support rather than generic AI chat

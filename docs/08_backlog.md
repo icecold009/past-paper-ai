@@ -43,7 +43,7 @@ Priority:
 - Real Gemini tagging is blocked until `GEMINI_API_KEY` is configured.
 - The required 15–20-question manual syllabus review has not been completed.
 - The current database does not yet model curriculum chapters, diagnostic evidence, recommendation reasons, or school/class scope.
-- There is no FastAPI service, frontend, authentication, RLS, teacher workflow, or production deployment.
+- A v1 FastAPI service now exists; the frontend, authentication, RLS, teacher workflow, and production deployment remain incomplete.
 
 ## 4. P0 — trust and prerequisite blockers
 
@@ -462,4 +462,3 @@ An item is complete only when:
 - generated artifacts are reproducible;
 - security and privacy implications are reviewed;
 - the result is committed on a feature branch and handed off with the next gate.
-
