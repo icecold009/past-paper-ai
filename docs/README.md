@@ -2,31 +2,18 @@
 
 This documentation set is the reference point for product decisions, technical implementation, security reviews, and future handoffs. Update the relevant document before making a decision that affects its area.
 
-## Product and implementation documents
+## Coding and product documents
 
-- [ ] Product Requirements Document — overview of the entire app idea
-- [ ] Technical Requirements Document — technical decisions and chosen stack
-- [ ] App Flow — navigation and primary user journeys
-- [ ] UI/UX Design Brief — fonts, colors, layout, interaction, and visual language
-- [ ] Backend Schema — how user data is stored and organized
-- [ ] Implementation Plan — exact step-by-step build sequence and phase gates
+1. [Product Requirements Document](01_product_requirements.md) — overview of the entire app idea
+2. [Technical Requirements Document](02_technical_requirements.md) — technical decisions and chosen stack
+3. [App Flow](03_app_flow.md) — navigation and primary user journeys
+4. [UI/UX Design Brief](04_ui_ux_design_brief.md) — fonts, colors, layout, interaction, and visual language
+5. [Backend Schema](05_backend_schema.md) — how user data is stored and organized
+6. [Implementation Plan](06_implementation_plan.md) — exact step-by-step build sequence and phase gates
 
-## Security documents and review areas
+## Security document
 
-- [ ] Frontend security
-- [ ] APIs and backend logic
-- [ ] Database and storage
-- [ ] Authentication and permissions
-- [ ] Hosting and deployment
-- [ ] Cloud and compute
-- [ ] CI/CD and version control
-- [ ] Security and RLS
-- [ ] Rate limiting
-- [ ] Prompt injection
-- [ ] Caching and CDN
-- [ ] Load balancing and scaling
-- [ ] Error tracking and logs
-- [ ] Availability and recovery
+7. [Security Requirements](07_security_requirements.md) — the complete security review covering frontend, APIs, database, auth, infrastructure, operations, and resilience
 
 ## Working rule
 
