@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -9,6 +10,11 @@ from src.paths import pages_csv_path, questions_csv_path
 
 _QUESTION_START_RE = re.compile(
     r"^\s*(?P<number>\d{1,2})(?:\s*[\.)])?(?:\s*\([a-z]\))?(?:\s*\([ivxlcdm]+\))?\s+(?P<body>\S.*)$",
+    re.IGNORECASE,
+)
+_MARK_RE = re.compile(r"\[(?P<marks>\d+)\]")
+_SUBQUESTION_LABEL_RE = re.compile(
+    r"(?P<label>(?:(?<![A-Za-z])\((?:[a-hj-z]|[ivxlcdm]+)\))+)",
     re.IGNORECASE,
 )
 
@@ -93,6 +99,50 @@ def _split_questions(document_lines: list[tuple[int, str]]) -> list[tuple[str, i
     return chunks
 
 
+def _mark_total(text: str) -> int:
+    return sum(int(match.group("marks")) for match in _MARK_RE.finditer(text))
+
+
+def _clean_subquestion_text(text: str) -> str:
+    without_marks = _MARK_RE.sub("", text)
+    return re.sub(r"\s+", " ", without_marks).strip()
+
+
+def parse_question_structure(question_text: str) -> tuple[list[dict[str, object]], int, int]:
+    """Return labeled subquestions, unlabeled marks, and the total mark count.
+
+    Subquestion labels are kept as they appear structurally in the source, so a
+    nested label such as ``(a)(i)`` is represented as one explicit label. Marks
+    before the first subquestion label belong to the top-level question; marks
+    in each labeled segment belong to that subquestion.
+    """
+
+    label_matches = list(_SUBQUESTION_LABEL_RE.finditer(question_text))
+    if not label_matches:
+        marks = _mark_total(question_text)
+        return [], marks, marks
+
+    top_level_marks = _mark_total(question_text[: label_matches[0].start()])
+    subquestions: list[dict[str, object]] = []
+    for index, label_match in enumerate(label_matches):
+        segment_end = (
+            label_matches[index + 1].start()
+            if index + 1 < len(label_matches)
+            else len(question_text)
+        )
+        segment = question_text[label_match.end() : segment_end]
+        subquestions.append(
+            {
+                "label": label_match.group("label").lower(),
+                "text": _clean_subquestion_text(segment),
+                "marks": _mark_total(segment),
+            }
+        )
+
+    total_marks = top_level_marks + sum(int(item["marks"]) for item in subquestions)
+    return subquestions, top_level_marks, total_marks
+
+
 def _write_mock_pages_csv(subject: str, pages_csv: Path, mock_papers: list[str] | None = None) -> None:
     pages_csv.parent.mkdir(parents=True, exist_ok=True)
     papers = [p.strip().lower() for p in (mock_papers or ["p1", "p2"]) if p.strip()]
@@ -112,7 +162,7 @@ def _write_mock_pages_csv(subject: str, pages_csv: Path, mock_papers: list[str] 
             "variant": "11",
             "doc_type": "qp",
             "page": 1,
-            "text": "1. Explain two reasons why a CPU uses cache memory. [4]\n2. Describe one advantage of optical storage over magnetic storage. [2]",
+            "text": "1. Explain why a CPU uses cache memory. (a) State one reason. [2] (b) Explain another reason. [2]\n2. Describe one advantage of optical storage over magnetic storage. [2]",
         },
         {
             "filename": f"{subject}_{second_paper}_2023_mj_21_qp.pdf",
@@ -123,7 +173,7 @@ def _write_mock_pages_csv(subject: str, pages_csv: Path, mock_papers: list[str] 
             "variant": "21",
             "doc_type": "qp",
             "page": 1,
-            "text": "1. Write pseudocode to validate a user input in the range 1 to 100. [5]\n2. State one use of an array in this program. [1]",
+            "text": "1. Write pseudocode to validate a user input in the range 1 to 100. (a)(i) State a validation condition. [2] (ii) Explain why it is needed. [3]\n2. State one use of an array in this program. [1]",
         },
     ]
     pd.DataFrame(mock_rows).to_csv(pages_csv, index=False, encoding="utf-8")
@@ -169,6 +219,7 @@ def segment_questions(
 
         for idx, (question_number, start_page, end_page, question_text) in enumerate(chunks, start=1):
             page_label = str(start_page) if start_page == end_page else f"{start_page}-{end_page}"
+            subquestions, top_level_marks, total_marks = parse_question_structure(question_text)
             question_rows.append(
                 {
                     "question_id": f"{filename}::p{page_label}::q{idx}",
@@ -184,6 +235,9 @@ def segment_questions(
                     "question_number": question_number,
                     "question_text": question_text,
                     "question_text_length": len(question_text),
+                    "marks": top_level_marks,
+                    "subquestions": json.dumps(subquestions, ensure_ascii=False),
+                    "total_marks": total_marks,
                 }
             )
 
@@ -203,6 +257,9 @@ def segment_questions(
             "question_number",
             "question_text",
             "question_text_length",
+            "marks",
+            "subquestions",
+            "total_marks",
         ],
     )
 

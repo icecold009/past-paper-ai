@@ -8,6 +8,31 @@ from dotenv import load_dotenv
 from src.paths import generated_paper_md_path, generated_prompt_md_path
 
 
+def generate_text(
+    prompt: str,
+    *,
+    model_name: str = "gemini-2.5-flash",
+    model: object | None = None,
+) -> str:
+    """Generate text with the Gemini setup shared by application features."""
+    if model is None:
+        load_dotenv()
+        api_key = os.getenv("GEMINI_API_KEY", "").strip()
+        if not api_key:
+            raise RuntimeError("GEMINI_API_KEY is missing. Add it to .env before generating content.")
+
+        import google.generativeai as genai
+
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel(model_name=model_name)
+
+    response = model.generate_content(prompt)
+    generated_text = getattr(response, "text", None)
+    if not generated_text:
+        raise RuntimeError("Gemini returned an empty response.")
+    return generated_text
+
+
 def generate_practice_paper(
     subject: str,
     prompt_path: Path | None = None,
@@ -39,19 +64,7 @@ def generate_practice_paper(
         output_path.write_text(dry_run_content, encoding="utf-8")
         return output_path
 
-    load_dotenv()
-    api_key = os.getenv("GEMINI_API_KEY", "").strip()
-    if not api_key:
-        raise RuntimeError("GEMINI_API_KEY is missing. Add it to .env before running generate.")
-
-    import google.generativeai as genai
-
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel(model_name=model_name)
-    response = model.generate_content(prompt)
-    generated_text = getattr(response, "text", None)
-    if not generated_text:
-        raise RuntimeError("Gemini returned an empty response.")
+    generated_text = generate_text(prompt, model_name=model_name)
 
     output_path.write_text(generated_text, encoding="utf-8")
     return output_path

@@ -4,11 +4,15 @@ import argparse
 
 from src.analyze_questions import analyze_questions
 from src.build_prompt import build_prompt
+from src.db.ingest import ingest_subject
+from src.db.session import create_db_engine
 from src.extract_pdfs import extract_all_pdfs
 from src.generate_paper import generate_practice_paper
+from src.match_mark_schemes import match_mark_schemes
 from src.paths import RAW_PDF_ROOT, generated_prompt_md_path
 from src.segment_questions import segment_questions
 from src.subject_plan import load_subject_plan
+from src.tag_questions import tag_questions
 from src.utils import parse_caie_filename
 
 
@@ -144,6 +148,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Create and use mock pages CSV when extraction output is missing",
     )
 
+    match_parser = subparsers.add_parser(
+        "match", help="Pair question-paper and mark-scheme page text"
+    )
+    _add_subject_argument(match_parser)
+
     analyze_parser = subparsers.add_parser(
         "analyze", help="Create stats, representative samples, and blueprint scaffold"
     )
@@ -165,6 +174,37 @@ def _build_parser() -> argparse.ArgumentParser:
         "--dry-run",
         action="store_true",
         help="Skip Gemini call and write a local dry-run draft",
+    )
+
+    tag_parser = subparsers.add_parser("tag", help="Classify questions and extract mark-scheme points")
+    _add_subject_argument(tag_parser)
+    tag_parser.add_argument(
+        "--model",
+        default="gemini-2.5-flash",
+        help="Gemini model name for tagging",
+    )
+    tag_parser.add_argument(
+        "--limit",
+        type=int,
+        help="Limit the number of question rows and matched pairs processed",
+    )
+    tag_parser.add_argument(
+        "--delay",
+        type=float,
+        default=1.0,
+        help="Seconds between Gemini requests and retries (default: 1.0)",
+    )
+    tag_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print prompts and skip Gemini calls",
+    )
+
+    ingest_parser = subparsers.add_parser("ingest", help="Load tagged questions into the database")
+    _add_subject_argument(ingest_parser)
+    ingest_parser.add_argument(
+        "--database-url",
+        help="Override DATABASE_URL from .env",
     )
 
     run_parser = subparsers.add_parser("run", help="Run extract -> segment -> analyze -> build-prompt")
@@ -206,6 +246,11 @@ def main() -> int:
             segment_questions(subject=subject, use_mock_if_missing=args.mock, mock_papers=mock_papers)
         return 0
 
+    if args.command == "match":
+        for subject in subjects:
+            match_mark_schemes(subject=subject)
+        return 0
+
     if args.command == "analyze":
         for subject in subjects:
             analyze_questions(subject=subject, planned_papers=subject_plan.get(subject))
@@ -242,6 +287,27 @@ def main() -> int:
                 has_failure = True
                 print(f"Generation failed for {subject}: {exc}")
         return 1 if has_failure else 0
+
+    if args.command == "tag":
+        for subject in subjects:
+            tag_questions(
+                subject=subject,
+                model_name=args.model,
+                limit=args.limit,
+                dry_run=args.dry_run,
+                delay_seconds=args.delay,
+            )
+        return 0
+
+    if args.command == "ingest":
+        engine = create_db_engine(args.database_url)
+        try:
+            for subject in subjects:
+                summary = ingest_subject(subject, engine=engine)
+                print(f"Ingested {subject}: {summary}")
+        finally:
+            engine.dispose()
+        return 0
 
     parser.print_help()
     return 1
