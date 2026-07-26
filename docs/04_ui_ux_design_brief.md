@@ -5,7 +5,7 @@
 This is the proposed design direction for the future student application. The current repository is CLI-only, so none of the visual tokens or screens below should be described as implemented.
 
 - Reviewed against repository: 2026-07-26
-- Primary product context: focused exam practice, not a social feed or game
+- Primary product context: Cambridge Grades 8–12 school learning, with chapter-level weakness support rather than generic AI chat
 - Design goal: make structure, marks, feedback, and progress understandable at a glance
 - Accessibility target: WCAG 2.2 AA intent, verified during implementation with automated and manual checks
 
@@ -15,13 +15,16 @@ This is the proposed design direction for the future student application. The cu
 2. Evidence over confidence: show marks possible, marks earned, and feedback provenance separately.
 3. Calm urgency: support timed practice without making the interface stressful.
 4. Progressive disclosure: keep setup simple, reveal detailed marking points on review.
-5. Traceability: where useful, expose subject, paper, year, session, and variant context.
-6. Recovery: never make a lost answer feel like the user’s fault.
-7. Inclusive by default: keyboard, zoom, contrast, reduced motion, and screen readers are first-class requirements.
+5. Explainability: show why a subject/chapter is recommended and what evidence supports it.
+6. Traceability: where useful, expose subject, paper, year, session, and variant context.
+7. Recovery: never make a lost answer feel like the user’s fault.
+8. Inclusive by default: keyboard, zoom, contrast, reduced motion, and screen readers are first-class requirements.
 
 ## 3. Visual personality
 
 The visual language should feel like a well-organized study desk: quiet, precise, warm enough to be inviting, and clear enough to support long sessions. Avoid noisy gradients, achievement confetti, excessive animations, and gamification that competes with exam thinking.
+
+The interface should feel like a personal Cambridge study coach and school learning workspace—not like a general-purpose AI answer box. The product should lead with “what should I work on next?” rather than “ask anything.”
 
 ## 4. Typography
 
@@ -101,7 +104,23 @@ On compact screens, move metadata into a readable top bar or disclosure panel an
 
 ### Cards and panels
 
-Use cards to group setup, feedback, and progress—not every sentence. A question should feel like a reading surface first, with marks and controls aligned consistently.
+Use cards to group setup, diagnosis, feedback, and progress—not every sentence. A question should feel like a reading surface first, with marks and controls aligned consistently.
+
+The dashboard is the product’s highest-leverage screen. It should answer three questions immediately:
+
+1. Which subject or chapter needs attention?
+2. Why has it been identified?
+3. What is the smallest useful activity I can do now?
+
+Show Grade 8–12/Cambridge stage, current subjects, a private weakness-support summary, confidence/evidence count, and one clear next action. Use supportive language such as “needs practice” or “developing” rather than labeling a student as weak.
+
+### Diagnostic and chapter support
+
+- Explain the purpose and expected time before a baseline begins.
+- Show chapter coverage and distinguish checked, developing, strong, and not-yet-known states.
+- Let students open a chapter view containing a short explanation/help action followed by targeted practice.
+- Make the recommendation reason visible but concise.
+- Never make a student feel publicly ranked or permanently defined by an early result.
 
 ### Question block
 
@@ -128,7 +147,9 @@ Use tables for paper metadata, review queues, and detailed progress where repeat
 
 ```text
 ┌──────────────────────────────────────────────────────────┐
-│ Subject / paper        Question 3 of 12   6 marks   Save │
+│ Grade 10 · Computer Science   Chapter: Data Representation │
+│ Recommended because: 2 recent attempts below target       │
+│ Question 3 of 12   6 marks   Save                         │
 ├───────────────────────────────┬──────────────────────────┤
 │                               │ Progress                 │
 │  Question text                │ 3 / 12                   │
@@ -147,8 +168,10 @@ The layout is a guide, not a requirement for a literal two-column implementation
 
 - Use a simple earned/possible fraction, for example `4 / 6`.
 - A horizontal progress bar must include a text value.
+- Recommendation cards should include target chapter, evidence count, confidence, and a short reason.
 - Marking points can use met/partial/missed rows with explanatory text.
 - Topic progress should show attempt count and recency to avoid false certainty.
+- Chapter progress should distinguish “not enough evidence” from “needs practice.”
 - Use charts only when they answer a clear question; a small table may be better than a decorative graph.
 
 ## 10. Content and tone
@@ -158,6 +181,8 @@ Use direct, respectful copy:
 - “Saved locally” / “Submitting…” / “Submitted” rather than vague spinner-only states.
 - “No reviewed questions match these filters” rather than “Nothing found”.
 - “This marking scheme is not available yet” rather than implying a grading failure is the student’s fault.
+- “This chapter is recommended because…” rather than unexplained AI-generated suggestions.
+- “You have not practised this chapter enough to estimate it yet” rather than a premature weak label.
 - “Report an issue with this question” for incorrect text, marks, or tags.
 
 Avoid praise that feels automated or judgmental. Feedback should be specific and actionable.

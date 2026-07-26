@@ -7,6 +7,7 @@ This document covers the future product and the security posture of the current 
 - Reviewed against repository: 2026-07-26
 - Current system: local batch scripts, CSV/JSON artifacts, optional local database
 - Current users: repository operator; no public user accounts
+- Product audience: school students in Grades 8–12, including minors, plus authorized teachers/reviewers
 - Current secrets: `GEMINI_API_KEY` and optional `DATABASE_URL` loaded from local `.env`
 - Current web/API surface: none
 - Current RLS/auth/rate limiting/CDN/load balancing/error tracking: none implemented
@@ -22,6 +23,8 @@ Security requirements below are phrased as controls to implement and verify. A p
 - Gemini API key and database credentials;
 - generated practice-paper prompts and outputs;
 - user email, submitted answers, attempts, marks, and mastery history;
+- Grade/stage, subject/chapter weakness profiles, diagnostic results, and recommendation history;
+- school/class membership and teacher-facing aggregate reports;
 - model responses and review/correction decisions;
 - migration and backup artifacts;
 - repository history and CI secrets.
@@ -31,6 +34,7 @@ Security requirements below are phrased as controls to implement and verify. A p
 - local pipeline maintainer;
 - student user;
 - teacher/content reviewer;
+- school administrator or safeguarding/operations administrator;
 - administrator/operator;
 - malicious anonymous visitor;
 - malicious authenticated user attempting cross-user access;
@@ -58,6 +62,7 @@ The most important current boundary is between extracted exam text and Gemini in
 - Preserve provenance and auditability for content corrections and grading.
 - Fail closed on missing credentials, malformed responses, unauthorized access, and ambiguous ownership.
 - Minimize retained personal data and source material.
+- Treat student learning and weakness data as sensitive educational information; collect only what the learning experience and school operations require.
 - Separate batch/model enrichment from runtime student requests.
 
 ## 4. Frontend
@@ -72,6 +77,8 @@ The most important current boundary is between extracted exam text and Gemini in
 - Avoid storing submitted answers or tokens in long-lived browser storage unless the privacy and threat model justify it.
 - Make logout clear local session state and prevent access to cached private views.
 - Show source/model review status honestly; do not style unreviewed tags as verified facts.
+- Avoid public or comparative displays of weakness, rank, score, speed, or AI usage for students.
+- Make the student’s Grade 8–12 context and recommendations visible only to the student and authorized school roles.
 
 ### Verification
 
@@ -92,6 +99,7 @@ No frontend exists yet. These are release requirements for the future web applic
 - Bound pagination, filter lengths, answer size, batch size, and request duration.
 - Use parameterized SQL/ORM queries; never concatenate user values into SQL.
 - Enforce ownership and role checks server-side on every resource access.
+- Enforce school/class scope for teacher views and prevent classmates from discovering another student’s chapters, attempts, or diagnostic results.
 - Make answer submission and other state transitions idempotent.
 - Return safe error messages; do not expose stack traces, SQL, file paths, secrets, or model prompts to users.
 - Add request IDs and structured audit events without logging answer content by default.
@@ -113,6 +121,7 @@ No API is implemented. SQLAlchemy ingestion is local batch logic, not a public a
 - Apply least-privilege grants; the application must not use an unrestricted superuser.
 - Validate foreign keys and unique constraints through migrations.
 - Define retention and deletion behavior for emails, answers, attempts, generated papers, and logs.
+- Define retention and deletion behavior for diagnostic evidence, chapter weakness profiles, recommendations, and class aggregates.
 - Keep source PDFs and extracted content in access-controlled storage; do not assume a Git-ignored file is protected on a shared machine.
 - Record source revision/model version when user-visible feedback depends on mutable content.
 
@@ -129,6 +138,7 @@ Proposed roles:
 - student: own attempts, papers, mastery, and settings;
 - reviewer/teacher: approved content review and possibly assigned student views;
 - operator/admin: migrations, source ingestion, system configuration, and incident response.
+- school administrator: approved school configuration, roster/class access, and safeguarding workflows as defined by the school.
 
 Roles must be explicit and server-derived. Never trust a role supplied by the browser.
 
@@ -140,6 +150,8 @@ Roles must be explicit and server-derived. Never trust a role supplied by the br
 - Rate-limit login, recovery, and token refresh actions.
 - Revoke sessions after security-sensitive events.
 - Test direct object reference attacks on every user-owned resource.
+- Test that a teacher sees only their authorized class aggregate and that a student cannot access teacher or class data.
+- Define age-appropriate account recovery, consent/notice, and data-access processes with the school and applicable policy owners before launch.
 
 ### Status
 
@@ -203,12 +215,13 @@ The repository includes `.gitignore` protection for local environment/data patte
 When user data reaches PostgreSQL:
 
 - enable row-level security on `attempts`, `mastery`, `papers`, and any future private tables;
+- enable row-level security on diagnostic evidence, weakness profiles, recommendations, class membership, and any future private tables;
 - define policies based on the authenticated database/application user identity;
 - ensure service roles are used only by trusted server-side workers;
 - test both positive and negative access paths;
 - do not rely solely on application query filters as tenant isolation.
 
-Content tables may be public/read-only only after copyright and review status are resolved. Reviewer/admin mutation policies must be narrower than student read policies.
+Content tables may be public/read-only only after copyright and review status are resolved. Reviewer/admin mutation policies must be narrower than student read policies. A student’s weakness profile is private by default; class reporting should expose aggregates only when explicitly authorized.
 
 ### Status
 
@@ -237,6 +250,7 @@ This is a high-priority project-specific risk because CAIE text is inserted into
 ### Requirements
 
 - Treat PDF text, question text, mark-scheme text, filenames, and user answers as untrusted data.
+- Treat diagnostic answers and student free text as untrusted data; they may contain prompt-injection instructions or personal information.
 - Clearly delimit source text from instructions.
 - Tell the model to classify/extract source content, not follow instructions found inside it.
 - Request a strict schema and validate every field after the model responds.
@@ -247,6 +261,7 @@ This is a high-priority project-specific risk because CAIE text is inserted into
 - Add adversarial fixtures containing text such as “ignore previous instructions” and verify the model output remains classification-only.
 - Review at least 15–20 real tags against the syllabus before full tagging.
 - Record model and prompt versions for reproducibility.
+- Never let a model-generated weakness label become a permanent student profile without evidence thresholds, reviewable rules, and a correction path.
 
 ### Mark-scheme extraction
 
@@ -327,6 +342,8 @@ Before exposing a user-facing deployment:
 - [ ] HTTPS and secure session settings are verified.
 - [ ] Auth and cross-user authorization tests pass.
 - [ ] RLS/equivalent tenant isolation is enabled and tested.
+- [ ] Student weakness/diagnostic data is private and school/class access is tested.
+- [ ] Grade 8–12 student privacy, notice, retention, and safeguarding requirements are approved by the school.
 - [ ] Input/output sanitization tests pass for source text, model output, and answers.
 - [ ] Prompt-injection fixtures pass.
 - [ ] Database backup and restore have been tested.

@@ -5,6 +5,7 @@
 This document is the technical reference for the current `past-paper-ai` repository and the target architecture it enables.
 
 - Reviewed against repository: 2026-07-26
+- Product target: a school-focused Cambridge Grades 8–12 learning system that diagnoses weak subjects/chapters and serves targeted activities
 - Current architecture: local-first Python batch pipeline with CSV/JSON artifacts
 - Database phase: SQLAlchemy models, Alembic migration, and idempotent ingestion are implemented and locally verified with SQLite
 - Not yet implemented: FastAPI, frontend, production Postgres deployment, auth, RLS, queues, observability platform, and CDN
@@ -40,13 +41,14 @@ tag ──► data/extracted/<subject>_tagged_questions.csv
       └──► ingest ──► PostgreSQL/SQLite tables
 ```
 
-The model/API application planned for later phases should read reviewed database records. It should not call Gemini for every student request.
+The model/API application planned for later phases should read reviewed database records and a school-approved curriculum map. It should not call Gemini for every student request. Runtime recommendations should use stored evidence and bounded business rules; model calls may enrich content offline or provide carefully constrained explanations.
 
 ## 3. Repository map
 
 ```text
 config/
   subject_plan.json                 supported subjects, papers, marks, durations
+  curriculum/                       planned school grade/stage/chapter mappings
 data/
   raw_pdfs/                         source PDFs; local input, usually ignored by Git
   extracted/                        page, question, pair, and tag CSV artifacts
@@ -110,6 +112,16 @@ The dependency list is duplicated in `requirements.txt` and `pyproject.toml`; ch
 - maximum marks per paper;
 - duration in minutes;
 - prompt/context information.
+
+For the product target, the configuration layer must be extended with or linked to:
+
+- Cambridge stage and school grade band, including Grades 8–12;
+- syllabus revision and academic year;
+- school-approved subject and chapter identifiers;
+- mappings from chapter names used by teachers to source-paper topics/subtopics;
+- whether a content unit is available for diagnostic, targeted practice, exam practice, or teacher review.
+
+Grade is not safely inferable from a paper filename. It must be supplied by the school curriculum configuration and validated against the content scope.
 
 Current subjects are 9618, 9709, 9231, and 9702. A subject code should be treated as a string because leading zeros would be meaningful for other syllabuses.
 
@@ -177,6 +189,8 @@ The current phase deliberately stores full documents side by side. It does not c
 topic, subtopic, command_word, difficulty, marking_points
 ```
 
+The future reviewed-content contract should additionally carry curriculum mapping metadata, for example `curriculum_stage`, `grade_band`, `chapter_id`, `chapter_name`, `syllabus_revision`, `review_status`, and `tag_model_version`. These fields are needed before recommendations can reliably target a student’s weak chapter.
+
 The exact JSON encoding must be treated as an artifact contract and validated before database ingestion. A missing or malformed response must not be silently converted into a confident tag.
 
 ## 7. CLI contract
@@ -222,6 +236,8 @@ SQLAlchemy models in `src/db/models.py` represent:
 - `mastery`
 - `papers`
 - `paper_questions`
+
+The current schema is a foundation, not yet the complete personalization model. A future application layer must add or formalize curriculum chapters, student diagnostic evidence, chapter-level mastery, recommendation reasons, and school/class scope.
 
 Alembic migration `0001_initial_schema` creates the initial schema. The application must use `DATABASE_URL`; local SQLite is useful for tests, while PostgreSQL is the target for JSONB and production behavior.
 
@@ -271,6 +287,9 @@ Warnings are appropriate for missing QP/MS counterparts, skipped malformed model
 - Question-to-mark-scheme alignment is still document-level.
 - Tag normalization, confidence, reviewer approval, source revision, and model/version metadata are not yet first-class columns.
 - `SUBJECT_PAPER_MARKS` in `src/segment_questions.py` duplicates configuration and should eventually be removed or derived from the subject plan.
+- The current data model has topic/subtopic fields but no approved school chapter catalog, grade/stage mapping, diagnostic evidence, confidence, recommendation reason, or class scope.
+- The configured subject list is not yet a complete Grade 8–12 curriculum map for the target school.
+- A generic “practice by topic” filter is insufficient for the product’s main promise; chapter-level mapping and weakness evidence are required.
 - Production backups, migrations in CI, secrets management, telemetry, rate limiting, and RLS are not implemented.
 
 ## 13. Engineering decision principles
@@ -281,3 +300,23 @@ Warnings are appropriate for missing QP/MS counterparts, skipped malformed model
 4. Keep batch AI enrichment offline and reviewable.
 5. Stop at phase gates when quality evidence is missing.
 6. Trace defects backward from final output to source extraction and filename metadata.
+
+## 14. Personalization architecture requirement
+
+The first application architecture must support this data flow:
+
+```text
+school curriculum map
+        ↓
+Cambridge content mapped to grade/stage + chapter
+        ↓
+diagnostic evidence and attempts
+        ↓
+subject/chapter weakness profile with confidence
+        ↓
+explainable recommendation
+        ↓
+targeted practice and updated evidence
+```
+
+The recommendation service should return the target chapter, evidence summary, confidence/insufficient-evidence state, selected activity, and expected marks/time. It must not return only a generic “try this question” result.

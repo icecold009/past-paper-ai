@@ -2,14 +2,14 @@
 
 ## 1. Status and scope
 
-This document maps the flows that exist in the repository and the navigation planned for the future student application.
+This document maps the flows that exist in the repository and the navigation planned for the future Cambridge Grades 8–12 student application.
 
 - Reviewed against repository: 2026-07-26
 - Current user interface: command line only
 - Future interface: web application backed by an API
 - No frontend routes, FastAPI routes, authentication screens, or deployed navigation exist yet
 
-The offline operator flow is implemented in phases. The student navigation below is a target flow and must not be mistaken for shipped functionality.
+The offline operator flow is implemented in phases. The student navigation below is a target flow and must not be mistaken for shipped functionality. The defining student flow is diagnosis → targeted chapter help → evidence of improvement, not open-ended AI chat.
 
 ## 2. Offline data flow
 
@@ -37,6 +37,22 @@ Ingest reviewed data into relational database
 ```
 
 The fork after segmentation is useful: analysis and prompt construction can be inspected independently of Gemini tagging, while matching/tagging are gated by source quality.
+
+The future product adds a student-facing loop after reviewed content is available:
+
+```text
+school curriculum map
+        ↓
+Cambridge content mapped to Grade 8–12 stage and chapter
+        ↓
+student baseline and attempt evidence
+        ↓
+subject/chapter weakness profile
+        ↓
+explainable next activity
+        ↓
+targeted practice and updated evidence
+```
 
 ## 3. Current CLI/operator flow
 
@@ -133,8 +149,10 @@ If an output is wrong, trace backward to the earliest incorrect artifact. Do not
 
 The future web application should use a small, stable navigation model:
 
-- Dashboard
+- Dashboard / My Learning
+- Diagnose
 - Practise
+- Chapters
 - Papers
 - Progress
 - Settings
@@ -148,38 +166,61 @@ These are proposed routes, not current files:
 ```text
 /                         landing or authenticated redirect
 /login                    sign in
-/dashboard                current progress and continue action
-/practice                 choose subject, paper, mode, filters
+/dashboard                current weakness profile and continue action
+/onboarding               grade, Cambridge stage, subjects, and school context
+/diagnostic               baseline subject/chapter check
+/practice                 choose a recommended chapter or exam-practice mode
 /practice/new             configure a session
 /practice/:sessionId      answer questions
 /practice/:sessionId/review review submitted answers and feedback
+/chapters                 browse school-approved chapters
+/chapters/:chapterId      chapter strength, practice, and revision view
 /papers                    browse source/generated papers
 /papers/:paperId           paper detail and start action
 /progress                  mastery by topic/subtopic/command word
+/teacher/classes           teacher-only class summary, if approved by the school
 /settings                  profile, preferences, privacy, export/delete
 ```
 
-### 5.3 Student flow: start a practice session
+### 5.3 Student flow: establish a learning profile
 
 ```text
-Dashboard
+Onboarding
    ↓
-Practise
+Confirm Grade 8–12 / Cambridge stage / subjects
    ↓
-Choose subject and paper scope
+Load the school-approved chapter map
    ↓
-Choose mode: targeted / mixed / timed
+Complete a short baseline or import existing evidence
    ↓
-Choose filters: topic, subtopic, command word, difficulty, marks, duration
+Show strong, developing, weak, and not-yet-known areas
    ↓
-Preview question count and marks budget
+Explain the first recommended chapter activity
+```
+
+The product must not call a student weak based on a single question. “Not enough evidence” is a valid state and should lead to a small diagnostic activity.
+
+### 5.4 Student flow: start targeted practice
+
+```text
+Dashboard / My Learning
+   ↓
+Recommended weak chapter
+   ↓
+Why this chapter is recommended
+   ↓
+Choose activity: learn / practise / exam question / timed set
+   ↓
+Choose effort: quick 10-minute help or full practice set
+   ↓
+Preview target chapter, question count, marks budget, and expected time
    ↓
 Start session
 ```
 
-The preview must disclose when filters cannot be satisfied and should not silently substitute unrelated questions.
+The preview must disclose when filters cannot be satisfied and should not silently substitute unrelated chapters. A student must be able to choose a different area without losing the recommendation context.
 
-### 5.4 Student flow: answer and submit
+### 5.5 Student flow: answer and submit
 
 ```text
 Question view
@@ -199,7 +240,7 @@ Next question or session review
 
 The answer screen must show question number, sub-label when present, marks possible, progress, and save/submission state. A submitted answer should become immutable unless the product explicitly supports an edit-and-resubmit event.
 
-### 5.5 Student flow: review and mastery
+### 5.6 Student flow: review and mastery
 
 Feedback should show:
 
@@ -207,22 +248,41 @@ Feedback should show:
 - marking points met, partially met, or missed where supported;
 - a concise explanation;
 - topic/subtopic and command word;
+- target chapter and Cambridge stage;
+- why the question was selected;
 - an action such as retry, view related practice, or return to progress.
 
-Progress should aggregate attempts only after the grading result is valid. A model-generated tag that is pending human review should not silently drive a high-confidence mastery recommendation.
+Progress should aggregate attempts only after the grading result is valid. A model-generated tag that is pending human review should not silently drive a high-confidence mastery recommendation. The student should see whether a chapter status is based on diagnostic evidence, marked attempts, teacher input, or insufficient evidence.
 
 ## 6. Screen requirements
 
 ### Dashboard
 
+- Show the student’s Grade 8–12/Cambridge stage and subject context.
 - Continue the most recent incomplete session.
-- Show recent score trend and weak areas.
+- Show a small number of supported weak subjects/chapters, with evidence and confidence.
+- Show the single clearest next action rather than an overwhelming list.
 - Show data freshness or review status if source content is newly imported.
-- Keep the primary action “Start practice” visually obvious.
+- Keep the primary action “Work on this chapter” visually obvious.
+
+### Diagnostic
+
+- Explain what the baseline measures and how long it will take.
+- Allow a student to pause and return.
+- Distinguish a diagnostic estimate from a graded exam result.
+- Show chapter coverage so the student knows what has and has not been checked.
+
+### Chapter view
+
+- Show chapter name, Cambridge stage, subject, current status, evidence count, and last reviewed date.
+- Explain the recommended next activity.
+- Offer a short lesson/help action where content exists, followed by practice.
+- Show related chapters only when the relationship is curriculum-approved.
 
 ### Practice setup
 
 - Subject and paper are required.
+- Grade/stage and school curriculum context are visible and cannot be silently changed by a question filter.
 - Filters use only available values.
 - Show selected marks/questions/time estimate.
 - Explain whether the session is generated or source-based.
@@ -244,7 +304,8 @@ Progress should aggregate attempts only after the grading result is valid. A mod
 
 ### Progress
 
-- Topic and subtopic views must identify data volume.
+- Subject and chapter views must identify data volume and evidence type.
+- Recommendations must show why an area is prioritized.
 - Avoid implying mastery from too few attempts.
 - Let users inspect the questions contributing to a score.
 
@@ -253,6 +314,10 @@ Progress should aggregate attempts only after the grading result is valid. A mod
 The future app must explicitly model:
 
 - loading subject/question metadata;
+- loading or missing the school curriculum map;
+- no diagnostic evidence yet;
+- insufficient evidence to call a chapter weak;
+- recommendation already completed or no longer relevant;
 - no questions matching selected filters;
 - source question lacking a mark scheme;
 - tag pending review;
@@ -267,7 +332,7 @@ Errors should preserve user-entered answer text locally where safe, provide a re
 
 ## 8. Permission flow
 
-Unauthenticated visitors may eventually see public product information and possibly approved sample questions. User data, attempts, papers, mastery, and settings require authentication. Ownership must be checked server-side for every ID-based resource; hiding a link is not authorization.
+Unauthenticated visitors may eventually see public product information and possibly approved sample questions. User data, diagnostic results, weakness profiles, attempts, papers, mastery, and settings require authentication. Teacher class summaries require explicit school-approved role access. Ownership must be checked server-side for every ID-based resource; hiding a link is not authorization.
 
 ## 9. Deep links and recovery
 
@@ -286,6 +351,9 @@ Unauthenticated visitors may eventually see public product information and possi
 | Gemini dry-run/limited tag flow | Implemented; real run requires API key and manual review |
 | Alembic migration and idempotent ingestion | Implemented; SQLite verified, Postgres deployment pending |
 | Student login and dashboard | Planned |
+| Grade/stage onboarding and school curriculum selection | Planned |
+| Diagnostic baseline and chapter weakness profile | Planned |
+| Explainable next-chapter recommendation | Planned |
 | Practice session and answer persistence | Planned |
 | Mark-scheme-aware grading | Planned/partially scaffolded by schema |
 | Mastery recommendations | Planned |

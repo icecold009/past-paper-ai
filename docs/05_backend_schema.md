@@ -8,7 +8,9 @@
 - Target: PostgreSQL for deployed application behavior
 - Not implemented yet: API endpoints, authentication provider integration, RLS policies, production backups, and user-facing grading services
 
-The database is the future application source for reviewed question content and user learning history. CSV and JSON artifacts remain the source/interchange layer for the batch pipeline.
+The database is the future application source for reviewed Cambridge content and student learning history. CSV and JSON artifacts remain the source/interchange layer for the batch pipeline.
+
+The current schema is only a foundation for the product’s central promise. It stores topic/subtopic mastery, but it does not yet fully represent the target school’s Grade 8–12 curriculum chapters, diagnostic evidence, recommendation reasons, or school/class boundaries. Those gaps must be addressed before personalized recommendations are treated as production-ready.
 
 ## 2. Entity relationship overview
 
@@ -117,6 +119,8 @@ The table is schema scaffolding. Authentication and email verification are not i
 
 The current model stores dimensions as strings to avoid prematurely locking the product into a topic taxonomy. A future normalized taxonomy may add stable topic IDs while preserving historical labels.
 
+For the target product, `mastery` should eventually be linked to an approved curriculum chapter and Cambridge stage rather than relying only on free-text `topic` and `subtopic`. It should also distinguish calculated evidence from a recommendation state such as `not_enough_evidence`, `developing`, `needs_practice`, or `strong`.
+
 ### 3.7 `papers`
 
 | Column | Type | Meaning |
@@ -185,6 +189,8 @@ subject code + paper + year + session + variant + question number + sub-label
 On rerun, ingestion should update enrichment fields and raw text for the existing row, not insert a duplicate. Mark-scheme points use the parent question plus point text as their duplicate key.
 
 Local verification already demonstrated that ingesting the same 9618 fixture twice leaves the same counts: one subject, eight questions, and zero mark-scheme points when no MS rows are available.
+
+That verification proves ingestion idempotence, not personalized learning correctness. A separate curriculum/diagnostic verification is required.
 
 ## 7. Migration workflow
 
@@ -278,3 +284,66 @@ HAVING COUNT(p.id) = 0;
 - Whether topic/subtopic should become foreign keys after normalization.
 - Whether `points_awarded` should be JSONB permanently or split into an attempt-points table.
 - Whether paper ownership and shared/teacher-curated papers need a separate visibility model.
+
+## 12. Required personalization extensions
+
+The future schema should support the following entities or equivalent structures:
+
+### `curriculum_chapters`
+
+An approved school-facing catalog of chapters, with fields such as:
+
+```text
+id, subject_id, curriculum_stage, grade_band, syllabus_revision,
+chapter_code, chapter_name, sequence, active
+```
+
+This table is the stable target for student recommendations. It should map to one or more source topics/subtopics rather than forcing the school’s chapter language to equal Gemini’s raw output.
+
+### `question_curriculum_map`
+
+A reviewed association between a question and one or more curriculum chapters, including:
+
+```text
+question_id, chapter_id, mapping_status, confidence,
+reviewed_by, reviewed_at, mapping_version
+```
+
+Many-to-many mapping is safer than a single chapter column because a question can assess more than one concept.
+
+### `diagnostic_evidence`
+
+Evidence from a baseline, marked attempt, teacher observation, or imported result:
+
+```text
+id, user_id, chapter_id, source_type, source_id,
+marks_earned, marks_possible, confidence, recorded_at
+```
+
+This lets the system distinguish no evidence from weak evidence and prevents a single poor attempt from defining a learner.
+
+### `recommendations`
+
+An explainable next-step record:
+
+```text
+id, user_id, chapter_id, reason_code, reason_text,
+evidence_summary, confidence, activity_type, status,
+created_at, completed_at
+```
+
+The recommendation should be reproducible from stored evidence and a versioned rule/model, not only from an ephemeral prompt.
+
+### School/class scope
+
+If teachers can see class-level patterns, the schema will need school/class membership and role tables with explicit visibility rules. Individual weakness details should not be exposed to classmates or included in public rankings.
+
+## 13. Personalization data rules
+
+- Store the student’s Grade 8–12/Cambridge stage context explicitly.
+- Store the school curriculum version used for each recommendation.
+- Preserve evidence provenance and whether it came from a diagnostic, attempt, teacher input, or imported result.
+- Keep `not enough evidence` distinct from `needs practice`.
+- Store recommendation reason, confidence, and rule/model version.
+- Allow a student or authorized teacher to flag an incorrect chapter mapping or recommendation.
+- Snapshot the question/chapter/marks context used by an attempt so later curriculum edits do not rewrite history.

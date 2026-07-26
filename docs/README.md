@@ -4,15 +4,23 @@ This directory contains the seven project reference documents requested for
 `past-paper-ai`. They were reviewed against the repository structure and current
 implementation on 2026-07-26.
 
+## Product north star
+
+Past Paper AI is intended for Cambridge students in Grades 8–12 at the target
+school. Its distinctive purpose is to identify each student’s weak subjects and
+chapters, explain why they need attention, and provide targeted help and
+practice. It should feel like a personal Cambridge learning coach—not a generic
+AI chat website.
+
 ## Documents
 
 1. [Product Requirements Document](01_product_requirements.md) — product vision, users, goals, functional requirements, quality rules, metrics, and open decisions.
-2. [Technical Requirements Document](02_technical_requirements.md) — implemented pipeline, repository map, data contracts, CLI, dependencies, database, and technical gaps.
-3. [App Flow](03_app_flow.md) — current operator flow plus proposed student navigation, screens, states, permissions, and recovery.
-4. [UI/UX Design Brief](04_ui_ux_design_brief.md) — proposed typography, colors, layout, interaction, visual language, and accessibility requirements.
-5. [Backend Schema](05_backend_schema.md) — SQLAlchemy/Alembic schema, relationships, ingestion mapping, natural keys, migration workflow, and future decisions.
-6. [Implementation Plan](06_implementation_plan.md) — phase gates, current status, exact verification sequence, testing matrix, and delivery protocol.
-7. [Security Requirements](07_security_requirements.md) — threat model and requirements for frontend, API, database, auth, RLS, model safety, deployment, operations, and recovery.
+2. [Technical Requirements Document](02_technical_requirements.md) — implemented pipeline plus the curriculum-map, diagnostic, and recommendation architecture needed for personalization.
+3. [App Flow](03_app_flow.md) — operator flow plus student onboarding, diagnosis, chapter support, targeted practice, and future navigation.
+4. [UI/UX Design Brief](04_ui_ux_design_brief.md) — proposed visual system for a calm, explainable Cambridge learning workspace.
+5. [Backend Schema](05_backend_schema.md) — current SQLAlchemy/Alembic schema plus required curriculum, evidence, recommendation, and school-scope extensions.
+6. [Implementation Plan](06_implementation_plan.md) — phase gates centered on the diagnosis → targeted help → improvement loop.
+7. [Security Requirements](07_security_requirements.md) — threat model and requirements for frontend, API, database, auth, RLS, student privacy, model safety, deployment, operations, and recovery.
 
 ## Current implementation boundary
 
@@ -29,7 +37,9 @@ database ingestion remain explicit reviewable operations.
 Current artifacts live under `data/extracted/`, `outputs/`, and `prompts/`.
 The future web application, API, authentication, RLS, production PostgreSQL,
 deployment, monitoring, and CDN are documented as planned work, not existing
-features.
+features. The current code does not yet contain the target school’s Grade 8–12
+curriculum map, diagnostic engine, chapter-level weakness profile, or
+recommendation service; those are explicitly planned next-stage requirements.
 
 ## Source-of-truth map
 
