@@ -92,6 +92,8 @@ Each phase prompt assumes the previous phase is merged and working. Do not batch
 
 Phase 3 (Gemini tagging) warrants especially careful manual review. Bad topic or command-word tags can quietly degrade every feature built after it.
 
+This is the highest-leverage checkpoint: manually review at least 15–20 tagged questions against the actual syllabus before running tagging on the full dataset. Do not treat schema validation or successful API responses as evidence that the tags are correct.
+
 - [ ] Phase 1 — Subquestion + marks parsing (`segment_questions.py`)
 - [ ] Phase 2 — QP ↔ MS matching
 - [ ] Phase 3 — Gemini tagging pass (topics, command words, mark-scheme points)
