@@ -129,6 +129,10 @@ Grade is not safely inferable from a paper filename. It must be supplied by the 
 
 Current subjects are 9618, 9709, 9231, and 9702. A subject code should be treated as a string because leading zeros would be meaningful for other syllabuses.
 
+Section B treats a normalized content pack as the runtime question-bank contract. The optional PDF pipeline, an approved
+external dataset, and an AI starter-bank job can all produce the same pack shape. The student application does not
+depend on PDF files being present.
+
 ### Environment
 
 `.env` is local-only and ignored by Git. `.env.example` documents the shape:

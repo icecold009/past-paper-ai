@@ -1,7 +1,7 @@
 # Past Paper AI frontend
 
 This Vite/React app is the functional frontend slice. It uses the FastAPI backend's subjects, questions, attempts,
-mastery, and weak-spot paper endpoints. The dashboard highlights the lowest evidenced topic/command-word scores,
+mastery, guidance, and weak-spot paper endpoints. The picker presents a personalized next step, while the dashboard highlights the lowest evidenced topic/command-word scores,
 drills into the existing question screen with both filters applied, and can generate a paper that visibly labels real
 past-paper questions separately from AI-generated fallback questions. Authentication is intentionally represented by
 an in-memory development user ID.

@@ -1,0 +1,81 @@
+{
+  "name": "Section B starter bank",
+  "version": "1.0.0",
+  "questions": [
+    {
+      "subject": "9618",
+      "subject_name": "Computer Science",
+      "question_number": "S1",
+      "topic": "Data representation",
+      "subtopic": "Memory",
+      "command_word": "Explain",
+      "difficulty": "easy",
+      "marks": 2,
+      "question_text": "Explain one reason why cache memory can improve processor performance.",
+      "mark_scheme_points": [
+        {"point_text": "Cache stores frequently used data or instructions", "marks_value": 1},
+        {"point_text": "The processor can access cache faster than main memory", "marks_value": 1}
+      ]
+    },
+    {
+      "subject": "9618",
+      "subject_name": "Computer Science",
+      "question_number": "S2",
+      "topic": "Algorithms",
+      "subtopic": "Searching",
+      "command_word": "Describe",
+      "difficulty": "medium",
+      "marks": 2,
+      "question_text": "Describe how a binary search reduces the remaining search space.",
+      "mark_scheme_points": [
+        {"point_text": "The sorted list is divided into two parts", "marks_value": 1},
+        {"point_text": "The half that cannot contain the item is discarded", "marks_value": 1}
+      ]
+    },
+    {
+      "subject": "9709",
+      "subject_name": "Mathematics",
+      "question_number": "S1",
+      "topic": "Algebra",
+      "subtopic": "Functions",
+      "command_word": "Determine",
+      "difficulty": "easy",
+      "marks": 2,
+      "question_text": "Determine the value of x if 3x + 4 = 19.",
+      "mark_scheme_points": [
+        {"point_text": "Subtracts 4 from both sides", "marks_value": 1},
+        {"point_text": "Obtains x = 5", "marks_value": 1}
+      ]
+    },
+    {
+      "subject": "9702",
+      "subject_name": "Physics",
+      "question_number": "S1",
+      "topic": "Mechanics",
+      "subtopic": "Forces",
+      "command_word": "Explain",
+      "difficulty": "medium",
+      "marks": 2,
+      "question_text": "Explain what happens to the acceleration of an object when the resultant force is doubled and its mass is unchanged.",
+      "mark_scheme_points": [
+        {"point_text": "Acceleration is directly proportional to resultant force", "marks_value": 1},
+        {"point_text": "Acceleration doubles", "marks_value": 1}
+      ]
+    },
+    {
+      "subject": "9231",
+      "subject_name": "Further Mathematics",
+      "question_number": "S1",
+      "topic": "Complex numbers",
+      "subtopic": "Argand diagrams",
+      "command_word": "Describe",
+      "difficulty": "medium",
+      "marks": 2,
+      "question_text": "Describe how a complex number is represented on an Argand diagram.",
+      "mark_scheme_points": [
+        {"point_text": "The real part is plotted on the horizontal axis", "marks_value": 1},
+        {"point_text": "The imaginary part is plotted on the vertical axis", "marks_value": 1}
+      ]
+    }
+  ]
+}

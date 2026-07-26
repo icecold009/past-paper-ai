@@ -29,6 +29,11 @@ export function getSubjects() {
   return request('/subjects')
 }
 
+export function getGuidance({ userId, subject }) {
+  const params = new URLSearchParams({ subject })
+  return request(`/guidance/${userId}?${params.toString()}`)
+}
+
 export function buildQuestionsPath({ subject, topic = '', commandWord = '' }) {
   const params = new URLSearchParams({ subject, limit: '100' })
   if (topic.trim()) params.set('topic', topic.trim())

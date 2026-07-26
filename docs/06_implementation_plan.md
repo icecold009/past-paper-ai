@@ -43,6 +43,7 @@ Work rules:
 | 10 | Practice sessions and answer persistence | Planned | Requires question selection, paper state, and idempotent submissions |
 | 11 | Mark-scheme-aware grading and feedback | Planned | Requires explicit grading policy and human evaluation |
 | 12 | Mastery, weakness profiles, and recommendations | Planned | Requires trustworthy attempts, chapter mappings, evidence thresholds, and cold-start handling |
+| B | Adaptive study engine revamp | In progress | Normalized content packs, optional source providers, personalized guidance, and student-first runtime flow |
 | 12 | Production deployment and operations | Planned | Requires security, backups, monitoring, and recovery drills |
 
 ## 3. Phase 1 — segmentation foundation

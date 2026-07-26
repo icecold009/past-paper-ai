@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from src.build_prompt import build_prompt
 from api.grading import GeminiGrade, grade_answer
+from api.guidance import get_guidance
 from api.papers import generate_weak_spot_paper
 from api.schemas import (
     AttemptCreate,
@@ -19,6 +20,7 @@ from api.schemas import (
     MasteryGridResponse,
     PaperGenerateRequest,
     GeneratedPaperResponse,
+    GuidanceResponse,
     QuestionResponse,
     SubjectResponse,
 )
@@ -144,6 +146,17 @@ app = create_app()
 def list_subjects(session: Session = Depends(_session_for_request)) -> list[SubjectResponse]:
     subjects = session.scalars(select(Subject).order_by(Subject.code)).all()
     return [_subject_response(subject) for subject in subjects]
+
+
+@app.get("/guidance/{user_id}", response_model=GuidanceResponse)
+def guidance(
+    user_id: int,
+    subject: str = Query(min_length=1, max_length=16),
+    session: Session = Depends(_session_for_request),
+) -> GuidanceResponse:
+    if user_id < 1:
+        raise HTTPException(status_code=422, detail="user_id must be positive")
+    return get_guidance(session, user_id=user_id, subject_code=subject)
 
 
 @app.get("/questions", response_model=list[QuestionResponse])

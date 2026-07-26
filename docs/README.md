@@ -24,6 +24,8 @@ AI chat website.
 8. [Project Backlog](08_backlog.md) — incomplete tasks, blockers, product decisions, priorities, dependencies, and acceptance criteria.
 
 9. [v1 API](09_api_v1.md) - local FastAPI run instructions, endpoint contracts, and v1 limitations.
+10. [Section B adaptive study engine](10_section_b_adaptive_study.md) - content-provider boundary, normalized packs,
+    and personalized guidance loop.
 
 ## Current implementation boundary
 

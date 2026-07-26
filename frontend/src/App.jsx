@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { generateWeakSpotPaper, getMastery, getQuestions, getSubjects, submitAttempt } from './api.js'
+import { generateWeakSpotPaper, getGuidance, getMastery, getQuestions, getSubjects, submitAttempt } from './api.js'
 import GeneratedPaper from './GeneratedPaper.jsx'
 import MasteryDashboard from './MasteryDashboard.jsx'
 
@@ -68,7 +68,26 @@ function StepIndicator({ screen }) {
   )
 }
 
-function SubjectPicker({ subjects, loading, error, selectedSubject, topic, onSubjectChange, onTopicChange, onStart, onOpenDashboard, onRetry }) {
+function GuidanceCard({ guidance, loading, error, onRetry, onStart }) {
+  if (loading) return <p className="status-message">Building your next study step…</p>
+  if (error) return <ErrorState message={error} onRetry={onRetry} />
+  if (!guidance) return null
+
+  return (
+    <section className="guidance-card" aria-labelledby="guidance-heading">
+      <p className="eyebrow">Personalized guidance</p>
+      <h3 id="guidance-heading">Your next best step</h3>
+      <p>{guidance.summary}</p>
+      {guidance.recommendation && (
+        <button className="button button-primary" type="button" onClick={() => onStart(guidance.recommendation)}>
+          Start recommended question
+        </button>
+      )}
+    </section>
+  )
+}
+
+function SubjectPicker({ subjects, loading, error, selectedSubject, topic, guidance, guidanceLoading, guidanceError, onSubjectChange, onTopicChange, onStart, onStartGuidance, onOpenDashboard, onRetry, onRetryGuidance }) {
   return (
     <section className="panel picker-panel" aria-labelledby="picker-heading">
       <p className="eyebrow">Start a practice set</p>
@@ -109,6 +128,16 @@ function SubjectPicker({ subjects, loading, error, selectedSubject, topic, onSub
             </button>
           </div>
         </form>
+      )}
+
+      {selectedSubject && (
+        <GuidanceCard
+          guidance={guidance}
+          loading={guidanceLoading}
+          error={guidanceError}
+          onRetry={onRetryGuidance}
+          onStart={onStartGuidance}
+        />
       )}
     </section>
   )
@@ -226,6 +255,9 @@ export default function App() {
   const [attemptLoading, setAttemptLoading] = useState(false)
   const [attemptError, setAttemptError] = useState('')
   const [gradingResult, setGradingResult] = useState(null)
+  const [guidance, setGuidance] = useState(null)
+  const [guidanceLoading, setGuidanceLoading] = useState(false)
+  const [guidanceError, setGuidanceError] = useState('')
   const [generatedPaper, setGeneratedPaper] = useState(null)
   const [paperLoading, setPaperLoading] = useState(false)
   const [paperError, setPaperError] = useState('')
@@ -293,15 +325,41 @@ export default function App() {
     }
   }
 
+  async function loadGuidance(subjectCode = selectedSubject) {
+    if (!subjectCode) return
+    setGuidanceLoading(true)
+    setGuidanceError('')
+    try {
+      setGuidance(await getGuidance({ userId: DEVELOPMENT_USER_ID, subject: subjectCode }))
+    } catch (error) {
+      setGuidanceError(error.message || 'Could not load personalized guidance.')
+    } finally {
+      setGuidanceLoading(false)
+    }
+  }
+
   useEffect(() => {
     loadSubjects()
   }, [])
+
+  useEffect(() => {
+    if (selectedSubject) loadGuidance(selectedSubject)
+    else setGuidance(null)
+  }, [selectedSubject])
 
   async function handleStart(event) {
     event.preventDefault()
     if (selectedSubject) {
       await loadQuestions({ subjectCode: selectedSubject, topicFilter: topic, commandWordFilter: '' })
     }
+  }
+
+  async function handleStartGuidance(recommendation) {
+    await loadQuestions({
+      subjectCode: selectedSubject,
+      topicFilter: recommendation.topic || '',
+      commandWordFilter: recommendation.command_word || '',
+    })
   }
 
   async function handleOpenDashboard() {
@@ -400,11 +458,16 @@ export default function App() {
               error={subjectsError}
               selectedSubject={selectedSubject}
               topic={topic}
+              guidance={guidance}
+              guidanceLoading={guidanceLoading}
+              guidanceError={guidanceError}
               onSubjectChange={setSelectedSubject}
               onTopicChange={setTopic}
               onStart={handleStart}
+              onStartGuidance={handleStartGuidance}
               onOpenDashboard={handleOpenDashboard}
               onRetry={loadSubjects}
+              onRetryGuidance={() => loadGuidance(selectedSubject)}
             />
             {questionsLoading && <LoadingState message={`Loading ${selectedSubjectName || 'subject'} questions…`} />}
             {questionsError && !questionsLoading && (

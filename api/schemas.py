@@ -99,3 +99,20 @@ class GeneratedPaperResponse(BaseModel):
     target_marks: int
     total_marks: int
     questions: list[GeneratedPaperQuestion]
+
+
+class GuidanceRecommendation(BaseModel):
+    action: Literal["start_diagnostic", "practice_weak_cell", "review"]
+    reason: str
+    question_id: int | None = None
+    topic: str | None = None
+    subtopic: str | None = None
+    command_word: str | None = None
+
+
+class GuidanceResponse(BaseModel):
+    user_id: int
+    subject: SubjectResponse
+    status: Literal["no_content", "start_diagnostic", "needs_practice", "on_track"]
+    summary: str
+    recommendation: GuidanceRecommendation | None = None
