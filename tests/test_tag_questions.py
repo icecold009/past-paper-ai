@@ -97,6 +97,38 @@ class TagQuestionsTests(unittest.TestCase):
         self.assertEqual(tagged.loc[0, "topic"], "Memory")
         self.assertEqual(json.loads(tagged.loc[0, "mark_scheme_points"]), ["Reduces access time"])
 
+    def test_variant_scope_filters_questions_and_pairs(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            questions_csv, pairs_csv, output_csv = self._write_inputs(Path(temp_dir))
+            questions = pd.read_csv(questions_csv)
+            second_question = questions.iloc[0].copy()
+            second_question["question_id"] = "q2"
+            second_question["variant"] = "12"
+            pd.concat([questions, pd.DataFrame([second_question])], ignore_index=True).to_csv(
+                questions_csv,
+                index=False,
+            )
+            pairs = pd.read_csv(pairs_csv)
+            second_pair = pairs.iloc[0].copy()
+            second_pair["variant"] = "12"
+            pd.concat([pairs, pd.DataFrame([second_pair])], ignore_index=True).to_csv(
+                pairs_csv,
+                index=False,
+            )
+
+            tagged = tag_questions(
+                "9618",
+                questions_csv=questions_csv,
+                pairs_csv=pairs_csv,
+                output_csv=output_csv,
+                dry_run=True,
+                delay_seconds=0,
+                allowed_variants={"2"},
+            )
+
+        self.assertEqual(len(tagged), 1)
+        self.assertEqual(str(tagged.loc[0, "variant"]), "12")
+
 
 if __name__ == "__main__":
     unittest.main()

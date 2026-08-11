@@ -47,7 +47,9 @@ outputs/<subject>_practice_paper_draft.md
 
 - **Subject codes are strings** (`"9618"`, not `9618`).
 - **Paper identifiers are lowercase** (`p1`, `p2`, `p5`).
-- **Filenames are metadata.** Required format: `<subject>_<paper>_<year>_<session>_<variant>_<type>.pdf` (e.g. `9618_p1_2023_mj_11_qp.pdf`). Session codes: `mj`/`on`/`fm`. Doc types: `qp`/`ms`. Many stages depend on `parse_caie_filename` in `src/utils.py` — check it before adding new filename handling logic.
+- **Current corpus scope** is all configured papers for 9618 (`p1`–`p4`), 9709 (`p1`, `p3`, `p4`, `p5`), 9231 (`p1`–`p4`), and 9702 (`p1`–`p5`).
+- **Variant scope** is configured as `"2"`, matching two-digit CAIE variant codes ending in `2` (`12`, `22`, `32`, `42`, and so on). Stages must pass this scope through rather than reintroducing other variants from stale CSVs.
+- **Filenames are metadata.** Required format: `<subject>_<paper>_<year>_<session>_<variant>_<type>.pdf` (e.g. `9618_p1_2023_mj_12_qp.pdf`). Session codes: `mj`/`on`/`fm`. Doc types: `qp`/`ms`. Many stages depend on `parse_caie_filename` in `src/utils.py` — check it before adding new filename handling logic.
 - **Generated output directories are created automatically** (`mkdir(parents=True, exist_ok=True)`) before writing — keep this pattern in new code.
 - **Pipeline stages fail loudly on missing upstream data**, except when `--mock` is explicitly passed. Don't silently fabricate results.
 - **Existing CSV/JSON columns are additive, not destructive**, when extending schemas — downstream consumers (`analyze_questions.py`, `build_prompt.py`) shouldn't break because a new column was added upstream. If a phase explicitly says to migrate a schema, that's the exception.

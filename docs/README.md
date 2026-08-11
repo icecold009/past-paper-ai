@@ -47,6 +47,7 @@ recommendation service; those are explicitly planned next-stage requirements.
 ## Source-of-truth map
 
 - Subject and paper configuration: `config/subject_plan.json`
+- Variant scope and paper marks: `config/subject_plan.json` and `src/subject_plan.py`
 - Filename parsing and normalized metadata: `src/utils.py`
 - Canonical paths: `src/paths.py`
 - CLI commands: `src/cli.py`

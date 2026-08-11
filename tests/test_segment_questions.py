@@ -99,6 +99,48 @@ class SegmentQuestionsCsvTests(unittest.TestCase):
         self.assertEqual(subquestions[1]["label"], "(b)")
         self.assertEqual(subquestions[1]["marks"], 4)
 
+    def test_filters_pages_to_allowed_variants(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            pages_csv = temp_path / "pages.csv"
+            output_csv = temp_path / "questions.csv"
+            pd.DataFrame(
+                [
+                    {
+                        "filename": "9618_p1_2023_mj_11_qp.pdf",
+                        "subject": "9618",
+                        "paper": "p1",
+                        "year": 2023,
+                        "session": "May/June",
+                        "variant": "11",
+                        "doc_type": "qp",
+                        "page": 1,
+                        "text": "1. Out-of-scope question. [1]",
+                    },
+                    {
+                        "filename": "9618_p1_2023_mj_12_qp.pdf",
+                        "subject": "9618",
+                        "paper": "p1",
+                        "year": 2023,
+                        "session": "May/June",
+                        "variant": "12",
+                        "doc_type": "qp",
+                        "page": 1,
+                        "text": "1. In-scope question. [2]",
+                    },
+                ]
+            ).to_csv(pages_csv, index=False)
+
+            questions = segment_questions(
+                "9618",
+                pages_csv=pages_csv,
+                output_csv=output_csv,
+                allowed_variants={"2"},
+            )
+
+        self.assertEqual(len(questions), 1)
+        self.assertEqual(questions.loc[0, "variant"], 12)
+
 
 if __name__ == "__main__":
     unittest.main()

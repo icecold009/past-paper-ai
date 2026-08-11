@@ -16,6 +16,7 @@ from src.paths import (
     questions_csv_path,
     tagged_questions_csv_path,
 )
+from src.subject_plan import variant_in_scope
 
 logger = logging.getLogger(__name__)
 
@@ -183,17 +184,30 @@ def _decode_subquestions(value: object, question_id: str) -> list[dict[str, obje
     return [item for item in decoded if isinstance(item, dict)]
 
 
-def _load_questions(subject: str, path: Path) -> pd.DataFrame:
+def _load_questions(
+    subject: str,
+    path: Path,
+    allowed_variants: set[str] | None = None,
+) -> pd.DataFrame:
     if not path.exists():
         raise FileNotFoundError(f"Missing questions CSV: {path}. Run segmentation first.")
     questions = pd.read_csv(path)
     missing = _QUESTION_REQUIRED_COLUMNS.difference(set(questions.columns))
     if missing:
         raise ValueError(f"Questions CSV missing required columns: {', '.join(sorted(missing))}")
-    return questions[questions["subject"].astype(str).str.strip() == str(subject)].copy()
+    filtered = questions[questions["subject"].astype(str).str.strip() == str(subject)].copy()
+    if allowed_variants is not None:
+        filtered = filtered[
+            filtered["variant"].map(lambda value: variant_in_scope(value, allowed_variants))
+        ]
+    return filtered
 
 
-def _load_pairs(subject: str, path: Path) -> pd.DataFrame:
+def _load_pairs(
+    subject: str,
+    path: Path,
+    allowed_variants: set[str] | None = None,
+) -> pd.DataFrame:
     if not path.exists():
         logger.warning("Missing QP/MS pairs CSV: %s; mark-scheme points will be empty", path)
         return pd.DataFrame()
@@ -201,7 +215,12 @@ def _load_pairs(subject: str, path: Path) -> pd.DataFrame:
     missing = _PAIR_REQUIRED_COLUMNS.difference(set(pairs.columns))
     if missing:
         raise ValueError(f"QP/MS pairs CSV missing required columns: {', '.join(sorted(missing))}")
-    return pairs[pairs["subject"].astype(str).str.strip() == str(subject)].copy()
+    filtered = pairs[pairs["subject"].astype(str).str.strip() == str(subject)].copy()
+    if allowed_variants is not None:
+        filtered = filtered[
+            filtered["variant"].map(lambda value: variant_in_scope(value, allowed_variants))
+        ]
+    return filtered
 
 
 def _match_key(row: pd.Series) -> tuple[str, str, int, str, str]:
@@ -236,6 +255,7 @@ def tag_questions(
     dry_run: bool = False,
     delay_seconds: float = 1.0,
     model: Any | None = None,
+    allowed_variants: set[str] | None = None,
 ) -> pd.DataFrame:
     """Classify segmented questions and extract points from matched mark schemes."""
 
@@ -247,10 +267,10 @@ def tag_questions(
     questions_csv = questions_csv or questions_csv_path(subject)
     pairs_csv = pairs_csv or qp_ms_pairs_csv_path(subject)
     output_csv = output_csv or tagged_questions_csv_path(subject)
-    questions = _load_questions(subject, questions_csv)
+    questions = _load_questions(subject, questions_csv, allowed_variants)
     if limit is not None:
         questions = questions.head(limit)
-    pairs = _load_pairs(subject, pairs_csv)
+    pairs = _load_pairs(subject, pairs_csv, allowed_variants)
 
     classification_jobs: list[tuple[int, str | None, str, object, str]] = []
     for row_index, row in questions.iterrows():

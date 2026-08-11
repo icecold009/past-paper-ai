@@ -70,6 +70,51 @@ class MatchMarkSchemesTests(unittest.TestCase):
         self.assertEqual(written.loc[0, "ms_text"], "Mark scheme page 1")
         self.assertTrue(any("No matching question paper" in message for message in captured.output))
 
+    def test_variant_scope_excludes_non_variant_two_pairs(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            pages_csv = temp_path / "9618_pages.csv"
+            output_csv = temp_path / "9618_qp_ms_pairs.csv"
+            rows = []
+            for variant in ("12", "11"):
+                rows.extend(
+                    [
+                        {
+                            "filename": f"9618_p1_2023_mj_{variant}_qp.pdf",
+                            "subject": "9618",
+                            "paper": "p1",
+                            "year": 2023,
+                            "session": "May/June",
+                            "variant": variant,
+                            "doc_type": "qp",
+                            "page": 1,
+                            "text": f"QP {variant}",
+                        },
+                        {
+                            "filename": f"9618_p1_2023_mj_{variant}_ms.pdf",
+                            "subject": "9618",
+                            "paper": "p1",
+                            "year": 2023,
+                            "session": "May/June",
+                            "variant": variant,
+                            "doc_type": "ms",
+                            "page": 1,
+                            "text": f"MS {variant}",
+                        },
+                    ]
+                )
+            pd.DataFrame(rows).to_csv(pages_csv, index=False)
+
+            pairs = match_mark_schemes(
+                subject="9618",
+                pages_csv=pages_csv,
+                output_csv=output_csv,
+                allowed_variants={"2"},
+            )
+
+        self.assertEqual(len(pairs), 1)
+        self.assertEqual(pairs.loc[0, "variant"], "12")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -141,12 +141,12 @@ The following are intentionally not part of the current segmentation/tagging/dat
 
 ### FR-01: Subject and paper configuration
 
-The system shall define supported subjects, syllabus names, papers, maximum marks, and durations in `config/subject_plan.json`. Current configured subjects are:
+The system shall define supported subjects, syllabus names, papers, maximum marks, and durations in `config/subject_plan.json`. The current configured corpus is restricted to variant 2 and includes:
 
-- 9618 — Computer Science — papers 1 and 2
-- 9709 — Mathematics — papers 1 and 5
-- 9231 — Further Mathematics — papers 1 and 4
-- 9702 — Physics — papers 1 and 2
+- 9618 — Computer Science — papers 1, 2, 3, and 4
+- 9709 — Mathematics — papers 1, 3, 4, and 5
+- 9231 — Further Mathematics — papers 1, 2, 3, and 4
+- 9702 — Physics — papers 1, 2, 3, 4, and 5
 
 The configuration is the source for validation and prompt context. For the student product it must eventually also represent Cambridge stage, school grade band, syllabus revision, curriculum chapter identifiers, and the mapping between the school’s chapter names and source-paper topics. Any duplicated constants in implementation code must remain synchronized or be removed in a future cleanup.
 
