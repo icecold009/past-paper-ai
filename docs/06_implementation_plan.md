@@ -35,14 +35,13 @@ Work rules:
 | 2 | Match QP/MS documents by filename metadata | Implemented | Unit test covers match and variant mismatch; current fixture has no MS rows |
 | 3 | Gemini topic/command-word/difficulty tags and mark points | Code implemented | Dry-run path works; real run needs `GEMINI_API_KEY`; 15–20 hand-review gate is still required |
 | 4 | SQLAlchemy schema, Alembic, idempotent ingest | Implemented | SQLite migration and two-run idempotence verified; live Postgres still pending |
-| 5 | School curriculum map and personalization model | Planned | Define Cambridge Grades 8–12 stages, chapters, mappings, diagnostic evidence, and recommendation reasons |
-| 6 | FastAPI read/write service | v1 implemented | Subjects, filtered questions, mark-scheme-aware attempts, mastery grid, Pydantic validation, and deterministic API tests; auth/RLS and full contract remain |
-| 7 | Authentication, school permissions, and RLS | Planned | Must precede multi-user data or deployment |
+| 5 | School curriculum map and personalization model | Foundation in progress | Versioned chapter/mapping entities, deterministic evidence states, and a reviewed-map importer exist; school-approved content remains required |
+| 6 | FastAPI read/write service | v1 implemented | Subjects, questions, attempts, mastery, curriculum, guidance, diagnostics, and retry-safe practice-session contracts are covered; provider auth/RLS remains |
+| 7 | Authentication, school permissions, and RLS | Foundation in progress | Signed request verification and ownership/school checks exist; identity-provider integration and database RLS remain |
 | 8 | Student web frontend | v1 slice implemented | Subject picker, mastery dashboard, question answering, and grading feedback work against the FastAPI service; full diagnosis flow, auth, persistence, and visual QA remain |
-| 9 | Weak-spot paper generation | v1 slice implemented | Weakest-cell selection, unseen real-question weighting, labeled Gemini fallback questions, paper persistence, and frontend display; auth and full paper-taking flow remain |
-| 10 | Practice sessions and answer persistence | Planned | Requires question selection, paper state, and idempotent submissions |
-| 11 | Mark-scheme-aware grading and feedback | Planned | Requires explicit grading policy and human evaluation |
-| 12 | Mastery, weakness profiles, and recommendations | Planned | Requires trustworthy attempts, chapter mappings, evidence thresholds, and cold-start handling |
+| 9 | Practice sessions and answer persistence | Foundation in progress | Retry-safe diagnostic/practice records and state transitions exist; full paper-taking and grading attachment remain |
+| 10 | Mark-scheme-aware grading and feedback | v1 slice implemented | Existing attempt grading preserves mark-scheme evidence; policy, human evaluation, corrections, and version metadata remain |
+| 11 | Mastery, weakness profiles, and recommendations | Foundation in progress | Transparent chapter evidence and explainable recommendations exist; approved mappings, evaluation, and cold-start rollout remain |
 | 12 | Production deployment and operations | Planned | Requires security, backups, monitoring, and recovery drills |
 
 ## 3. Phase 1 — segmentation foundation
