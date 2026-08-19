@@ -46,6 +46,9 @@ class GradingResult(BaseModel):
     marks_possible: float = Field(ge=0)
     feedback: str
     mastery_updated: bool
+    grading_model: str | None = None
+    grading_policy_version: str
+    grading_status: Literal["graded", "corrected", "disputed"]
 
 
 class MasteryCell(BaseModel):
@@ -99,3 +102,110 @@ class GeneratedPaperResponse(BaseModel):
     target_marks: int
     total_marks: int
     questions: list[GeneratedPaperQuestion]
+
+
+class CurriculumChapterResponse(BaseModel):
+    id: int
+    subject: SubjectResponse
+    grade_stage: str
+    syllabus_revision: str
+    map_version: str
+    chapter_code: str
+    name: str
+    position: int
+    review_status: Literal["approved"]
+
+
+class GuidanceChapter(BaseModel):
+    id: int
+    chapter_code: str
+    name: str
+    grade_stage: str
+    syllabus_revision: str
+    map_version: str
+    evidence_count: int = Field(ge=0)
+    score: float | None = Field(default=None, ge=0, le=1)
+    confidence: float | None = Field(default=None, ge=0, le=1)
+    state: Literal["not_enough_evidence", "developing", "needs_practice", "strong"]
+
+
+class RecommendationResponse(BaseModel):
+    id: int
+    chapter: GuidanceChapter
+    state: Literal["developing", "needs_practice"]
+    reason: str
+    evidence_count: int = Field(ge=0)
+    confidence: float | None = Field(default=None, ge=0, le=1)
+    activity_type: str
+    rule_version: str
+    curriculum_version: str
+    dismissed_at: datetime | None = None
+
+
+class GuidanceResponse(BaseModel):
+    user_id: int
+    subject: SubjectResponse
+    state: Literal["no_content", "start_diagnostic", "needs_practice", "on_track"]
+    explanation: str
+    chapters: list[GuidanceChapter]
+    recommendation: RecommendationResponse | None = None
+
+
+class RecommendationDismissRequest(BaseModel):
+    user_id: PositiveInt
+
+
+class DiagnosticStartRequest(BaseModel):
+    user_id: PositiveInt
+    subject: str = Field(min_length=1, max_length=16)
+    grade_stage: str | None = Field(default=None, min_length=1, max_length=64)
+    idempotency_key: str | None = Field(default=None, min_length=1, max_length=128)
+    question_limit: int = Field(default=20, ge=1, le=100)
+
+
+class DiagnosticResponseSave(BaseModel):
+    user_id: PositiveInt
+    answer_text: str = Field(min_length=1, max_length=20_000)
+
+
+class DiagnosticResponseResult(BaseModel):
+    diagnostic_id: int
+    question_id: int
+    answer_text: str
+    state: Literal["active", "submitted", "abandoned"]
+
+
+class DiagnosticStartResponse(BaseModel):
+    id: int
+    user_id: int
+    subject: SubjectResponse
+    grade_stage: str | None
+    state: Literal["active", "submitted", "abandoned"]
+    questions: list[QuestionResponse]
+
+
+class PracticeSessionCreate(BaseModel):
+    user_id: PositiveInt
+    subject: str = Field(min_length=1, max_length=16)
+    question_ids: list[PositiveInt] = Field(min_length=1, max_length=100)
+    paper_id: PositiveInt | None = None
+    recommendation_id: PositiveInt | None = None
+    idempotency_key: str | None = Field(default=None, min_length=1, max_length=128)
+
+
+class PracticeAnswerResponse(BaseModel):
+    question_id: int
+    answer_text: str
+    status: Literal["draft", "submitted"]
+
+
+class PracticeSessionResponse(BaseModel):
+    id: int
+    user_id: int
+    subject: SubjectResponse
+    state: Literal["draft", "active", "submitted", "abandoned", "expired"]
+    question_ids: list[int]
+    answers: list[PracticeAnswerResponse]
+    created_at: datetime
+    started_at: datetime | None = None
+    submitted_at: datetime | None = None

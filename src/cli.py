@@ -3,8 +3,11 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from sqlalchemy.orm import Session
+
 from src.analyze_questions import analyze_questions
 from src.build_prompt import build_prompt
+from src.curriculum_map import load_curriculum_map, upsert_curriculum_map, curriculum_coverage
 from src.db.ingest import ingest_subject
 from src.db.session import create_db_engine
 from src.extract_pdfs import extract_all_pdfs
@@ -248,6 +251,13 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Override DATABASE_URL from .env",
     )
 
+    curriculum_parser = subparsers.add_parser(
+        "curriculum-map",
+        help="Import a reviewed, versioned school curriculum map",
+    )
+    curriculum_parser.add_argument("--path", type=Path, required=True)
+    curriculum_parser.add_argument("--database-url", help="Override DATABASE_URL from .env")
+
     run_parser = subparsers.add_parser("run", help="Run extract -> segment -> analyze -> build-prompt")
     _add_subject_argument(run_parser)
     run_parser.add_argument(
@@ -370,6 +380,19 @@ def main() -> int:
                     allowed_variants=allowed_variants,
                 )
                 print(f"Ingested {subject}: {summary}")
+        finally:
+            engine.dispose()
+        return 0
+
+    if args.command == "curriculum-map":
+        document = load_curriculum_map(args.path)
+        engine = create_db_engine(args.database_url)
+        try:
+            with Session(engine) as session:
+                summary = upsert_curriculum_map(session, document)
+                print(f"Imported curriculum map: {summary}")
+                for subject in document.subjects:
+                    print(curriculum_coverage(session, subject_code=subject.code))
         finally:
             engine.dispose()
         return 0
