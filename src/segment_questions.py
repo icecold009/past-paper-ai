@@ -7,6 +7,7 @@ from pathlib import Path
 import pandas as pd
 
 from src.paths import pages_csv_path, questions_csv_path
+from src.subject_plan import variant_in_scope
 
 _QUESTION_START_RE = re.compile(
     r"^\s*(?P<number>\d{1,2})(?:\s*[\.)])?(?:\s*\([a-z]\))?(?:\s*\([ivxlcdm]+\))?\s+(?P<body>\S.*)$",
@@ -159,7 +160,7 @@ def _write_mock_pages_csv(subject: str, pages_csv: Path, mock_papers: list[str] 
             "paper": first_paper,
             "year": 2023,
             "session": "May/June",
-            "variant": "11",
+            "variant": "12",
             "doc_type": "qp",
             "page": 1,
             "text": "1. Explain why a CPU uses cache memory. (a) State one reason. [2] (b) Explain another reason. [2]\n2. Describe one advantage of optical storage over magnetic storage. [2]",
@@ -170,7 +171,7 @@ def _write_mock_pages_csv(subject: str, pages_csv: Path, mock_papers: list[str] 
             "paper": second_paper,
             "year": 2023,
             "session": "May/June",
-            "variant": "21",
+            "variant": "22",
             "doc_type": "qp",
             "page": 1,
             "text": "1. Write pseudocode to validate a user input in the range 1 to 100. (a)(i) State a validation condition. [2] (ii) Explain why it is needed. [3]\n2. State one use of an array in this program. [1]",
@@ -185,6 +186,7 @@ def segment_questions(
     output_csv: Path | None = None,
     use_mock_if_missing: bool = False,
     mock_papers: list[str] | None = None,
+    allowed_variants: set[str] | None = None,
 ) -> pd.DataFrame:
     if pages_csv is None:
         pages_csv = pages_csv_path(subject)
@@ -207,6 +209,13 @@ def segment_questions(
     if missing:
         missing_csv = ", ".join(sorted(missing))
         raise ValueError(f"Pages CSV missing required columns: {missing_csv}")
+
+    if allowed_variants is not None:
+        pages = pages[
+            pages["variant"].map(
+                lambda variant: variant_in_scope(variant, allowed_variants)
+            )
+        ]
 
     question_rows: list[dict[str, object]] = []
     document_columns = ["filename", "subject", "paper", "year", "session", "variant", "doc_type"]

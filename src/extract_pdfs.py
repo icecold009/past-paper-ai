@@ -12,6 +12,7 @@ if __package__ in {None, ""}:
     sys.path.insert(0, str(project_root))
 
 from src.paths import RAW_PDF_ROOT, pages_csv_path
+from src.subject_plan import variant_in_scope
 from src.utils import parse_caie_filename
 
 
@@ -44,6 +45,7 @@ def extract_subject_pdfs(
     subject: str,
     raw_pdf_root: Path = RAW_PDF_ROOT,
     allowed_papers: set[str] | None = None,
+    allowed_variants: set[str] | None = None,
 ) -> pd.DataFrame:
     rows: list[dict[str, Any]] = []
     files_processed = 0
@@ -69,6 +71,8 @@ def extract_subject_pdfs(
         if metadata is None or metadata["subject"] != subject:
             continue
         if allowed_papers is not None and metadata["paper"] not in allowed_papers:
+            continue
+        if not variant_in_scope(metadata["variant"], allowed_variants):
             continue
 
         file_rows = extract_pdf_pages(pdf_path)
@@ -104,6 +108,7 @@ def extract_all_pdfs(
     subjects: list[str],
     raw_pdf_root: Path = RAW_PDF_ROOT,
     subject_papers: dict[str, list[str]] | None = None,
+    allowed_variants: set[str] | None = None,
 ) -> dict[str, pd.DataFrame]:
     extracted: dict[str, pd.DataFrame] = {}
     for subject in subjects:
@@ -114,6 +119,7 @@ def extract_all_pdfs(
             subject=subject,
             raw_pdf_root=raw_pdf_root,
             allowed_papers=allowed,
+            allowed_variants=allowed_variants,
         )
     return extracted
 

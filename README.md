@@ -30,8 +30,8 @@ past-paper-ai/
 Rename PDFs exactly like this:
 
 ```text
-9618_p1_2023_mj_11_qp.pdf
-9618_p1_2023_mj_11_ms.pdf
+9618_p1_2023_mj_12_qp.pdf
+9618_p1_2023_mj_12_ms.pdf
 9702_p4_2022_on_42_qp.pdf
 9702_p4_2022_on_42_ms.pdf
 ```
@@ -41,7 +41,7 @@ Rename PDFs exactly like this:
 - `p1` / `p2` / `p3` / `p4` ... = paper number
 - `2023` = year
 - `mj` / `on` / `fm` = May/June, Oct/Nov, Feb/March
-- `11 12 13` / `21 22 23` / ... = variant code
+- `12 22 32` / ... = two-digit variant code; this project currently uses codes ending in `2`
 - `qp` = question paper
 - `ms` = mark scheme
 
@@ -53,11 +53,16 @@ pip install -r requirements.txt
 ```
 
 ## Default subject plan
-The project now includes a default plan in `config/subject_plan.json`:
-- 9618 (Computer Science): p1, p2
-- 9709 (Mathematics): p1, p5
-- 9231 (Further Mathematics): p1, p4
-- 9702 (Physics): p1, p2
+
+The project now includes the multi-subject release plan in `config/subject_plan.json`:
+
+- 9618 (Computer Science): p1, p2, p3, p4
+- 9709 (Mathematics): p1, p3, p4, p5
+- 9231 (Further Mathematics): p1, p2, p3, p4
+- 9702 (Physics): p1, p2, p3, p4, p5
+
+The configured variant scope is variant 2. In the two-digit CAIE filename code,
+this means variants ending in `2`, such as `12`, `22`, `32`, or `42`.
 
 If you run commands without `--subject`, the CLI uses this plan by default.
 
@@ -82,6 +87,19 @@ python -m src.cli validate --subject 9618 --subject 9702
 ```
 
 By default, `validate` also respects configured papers in `config/subject_plan.json`.
+
+### Preflight the configured corpus
+
+Run the non-destructive release preflight across every configured subject,
+paper, and variant scope:
+
+```bash
+python -m src.cli preflight
+```
+
+This writes `outputs/data_preflight.json` with raw-PDF hashes, QP/MS coverage,
+derived-artifact checks, configured paper marks, and a blocked/ready status.
+Pass `--subject` repeatedly to inspect a subset.
 
 ### 3. Extract text
 Run:

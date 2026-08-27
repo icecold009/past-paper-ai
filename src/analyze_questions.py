@@ -11,7 +11,7 @@ from src.paths import (
     questions_csv_path,
     representative_questions_csv_path,
 )
-from src.subject_plan import SUBJECT_PAPER_MARKS
+from src.subject_plan import SUBJECT_PAPER_MARKS, variant_in_scope
 
 
 def _build_blueprint_scaffold(
@@ -76,6 +76,7 @@ def analyze_questions(
     stats_csv: Path | None = None,
     representative_csv: Path | None = None,
     blueprint_json: Path | None = None,
+    allowed_variants: set[str] | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, object]]:
     if questions_csv is None:
         questions_csv = questions_csv_path(subject)
@@ -90,7 +91,14 @@ def analyze_questions(
         raise FileNotFoundError(f"Missing questions CSV: {questions_csv}. Run segmentation first.")
 
     questions = pd.read_csv(questions_csv)
-    required_columns = {"question_id", "paper", "year", "question_text", "question_text_length"}
+    required_columns = {
+        "question_id",
+        "paper",
+        "year",
+        "variant",
+        "question_text",
+        "question_text_length",
+    }
     missing = required_columns.difference(set(questions.columns))
     if missing:
         missing_csv = ", ".join(sorted(missing))
@@ -98,6 +106,12 @@ def analyze_questions(
 
     if "doc_type" in questions.columns:
         questions = questions[questions["doc_type"].astype(str).str.lower() == "qp"].copy()
+    if allowed_variants is not None:
+        questions = questions[
+            questions["variant"].map(
+                lambda variant: variant_in_scope(variant, allowed_variants)
+            )
+        ]
 
     stats = (
         questions.groupby(["paper", "year"], dropna=False)

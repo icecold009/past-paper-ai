@@ -6,6 +6,7 @@ from pathlib import Path
 import pandas as pd
 
 from src.paths import pages_csv_path, qp_ms_pairs_csv_path
+from src.subject_plan import variant_in_scope
 from src.utils import parse_caie_filename
 
 logger = logging.getLogger(__name__)
@@ -60,6 +61,7 @@ def _collect_file_records(
     pages: pd.DataFrame,
     subject: str,
     doc_type: str,
+    allowed_variants: set[str] | None = None,
 ) -> dict[MatchKey, dict[str, str]]:
     records: dict[MatchKey, dict[str, str]] = {}
     subject_pages = pages[pages["subject"].astype(str).str.strip() == str(subject)]
@@ -81,6 +83,8 @@ def _collect_file_records(
                 doc_type,
                 filename,
             )
+            continue
+        if not variant_in_scope(metadata["variant"], allowed_variants):
             continue
 
         key = _key_from_metadata(metadata)
@@ -109,6 +113,7 @@ def match_mark_schemes(
     subject: str,
     pages_csv: Path | None = None,
     output_csv: Path | None = None,
+    allowed_variants: set[str] | None = None,
 ) -> pd.DataFrame:
     """Pair complete QP and MS page text using shared filename metadata."""
 
@@ -124,8 +129,8 @@ def match_mark_schemes(
         missing_csv = ", ".join(sorted(missing))
         raise ValueError(f"Pages CSV missing required columns: {missing_csv}")
 
-    qp_records = _collect_file_records(pages, subject, "qp")
-    ms_records = _collect_file_records(pages, subject, "ms")
+    qp_records = _collect_file_records(pages, subject, "qp", allowed_variants)
+    ms_records = _collect_file_records(pages, subject, "ms", allowed_variants)
 
     for key in sorted(qp_records.keys() - ms_records.keys()):
         logger.warning(
