@@ -20,6 +20,8 @@ The default development server listens on `http://127.0.0.1:8000`.
 - `GET /healthz` is a process liveness check; `GET /readyz` verifies database readiness. Responses include an
   `X-Request-ID` header for tracing.
 - `GET /subjects` returns database subjects ordered by subject code.
+- `GET /guidance/{user_id}?subject=` returns the next personalized diagnostic, practice, or review recommendation
+  with the topic, command word, question, and reason for the recommendation.
 - `GET /questions?subject=&topic=&command_word=&limit=` returns up to 100 questions with source metadata.
 - `POST /attempts` accepts `{user_id, question_id, submitted_answer_text}`. It requires stored mark-scheme points,
   validates Gemini's JSON grading result, stores the attempt, and updates the matching mastery cell with a transparent

@@ -39,10 +39,12 @@ Work rules:
 | 6 | FastAPI read/write service | v1 implemented | Subjects, questions, attempts, mastery, curriculum, guidance, diagnostics, and retry-safe practice-session contracts are covered; provider auth/RLS remains |
 | 7 | Authentication, school permissions, and RLS | Foundation in progress | Signed request verification and ownership/school checks exist; identity-provider integration and database RLS remain |
 | 8 | Student web frontend | v1 slice implemented | Subject picker, mastery dashboard, question answering, and grading feedback work against the FastAPI service; full diagnosis flow, auth, persistence, and visual QA remain |
-| 9 | Practice sessions and answer persistence | Foundation in progress | Retry-safe diagnostic/practice records and state transitions exist; full paper-taking and grading attachment remain |
-| 10 | Mark-scheme-aware grading and feedback | v1 slice implemented | Existing attempt grading preserves mark-scheme evidence; policy, human evaluation, corrections, and version metadata remain |
-| 11 | Mastery, weakness profiles, and recommendations | Foundation in progress | Transparent chapter evidence and explainable recommendations exist; approved mappings, evaluation, and cold-start rollout remain |
-| 12 | Production deployment and operations | Planned | Requires security, backups, monitoring, and recovery drills |
+| 9 | Weak-spot paper generation | v1 slice implemented | Weakest-cell selection, unseen real-question weighting, labeled Gemini fallback questions, paper persistence, and frontend display; auth and full paper-taking flow remain |
+| 10 | Practice sessions and answer persistence | Foundation in progress | Retry-safe diagnostic/practice records and state transitions exist; full paper-taking and grading attachment remain |
+| 11 | Mark-scheme-aware grading and feedback | v1 slice implemented | Existing attempt grading preserves mark-scheme evidence; policy, human evaluation, corrections, and version metadata remain |
+| 12 | Mastery, weakness profiles, and recommendations | Foundation in progress | Transparent chapter evidence and explainable recommendations exist; approved mappings, evaluation, and cold-start rollout remain |
+| B | Adaptive study engine revamp | In progress | Normalized content packs, optional source providers, personalized guidance, and student-first runtime flow |
+| 13 | Production deployment and operations | Planned | Requires security, backups, monitoring, and recovery drills |
 
 ## 3. Phase 1 — segmentation foundation
 

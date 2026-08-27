@@ -104,6 +104,15 @@ class GeneratedPaperResponse(BaseModel):
     questions: list[GeneratedPaperQuestion]
 
 
+class GuidanceRecommendation(BaseModel):
+    action: Literal["start_diagnostic", "practice_weak_cell", "review"]
+    reason: str
+    question_id: int | None = None
+    topic: str | None = None
+    subtopic: str | None = None
+    command_word: str | None = None
+
+
 class CurriculumChapterResponse(BaseModel):
     id: int
     subject: SubjectResponse
@@ -145,10 +154,12 @@ class RecommendationResponse(BaseModel):
 class GuidanceResponse(BaseModel):
     user_id: int
     subject: SubjectResponse
-    state: Literal["no_content", "start_diagnostic", "needs_practice", "on_track"]
-    explanation: str
-    chapters: list[GuidanceChapter]
-    recommendation: RecommendationResponse | None = None
+    status: Literal["no_content", "start_diagnostic", "needs_practice", "on_track"] | None = None
+    summary: str | None = None
+    state: Literal["no_content", "start_diagnostic", "needs_practice", "on_track"] | None = None
+    explanation: str | None = None
+    chapters: list[GuidanceChapter] = Field(default_factory=list)
+    recommendation: GuidanceRecommendation | RecommendationResponse | None = None
 
 
 class RecommendationDismissRequest(BaseModel):
