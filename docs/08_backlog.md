@@ -42,7 +42,7 @@ Priority:
 - The current sample data contains QP rows but no MS rows, so real QP/MS coverage has not been demonstrated.
 - Real Gemini tagging is blocked until `GEMINI_API_KEY` is configured.
 - The required 15–20-question manual syllabus review has not been completed.
-- The current database does not yet model curriculum chapters, diagnostic evidence, recommendation reasons, or school/class scope.
+- The database now contains reviewed curriculum chapter, question-mapping, diagnostic-evidence, diagnostic response, practice-session, and explainable-recommendation entities. A reviewed-map importer, deterministic guidance service, and signed-request ownership boundary exist; school-approved mappings, identity-provider integration, PostgreSQL RLS, and grading policy remain incomplete.
 - A v1 FastAPI service now exists; the frontend, authentication, RLS, teacher workflow, and production deployment remain incomplete.
 
 ## 4. P0 — trust and prerequisite blockers
@@ -71,7 +71,7 @@ Acceptance criteria:
 
 ### BL-002 — Build the school curriculum/chapter map
 
-- Status: `PLANNED`
+- Status: `IN PROGRESS`
 - Priority: `P0`
 - Dependency: BL-001
 - Related phases: Phase 5
@@ -225,7 +225,7 @@ Acceptance criteria:
 
 ### BL-102 — Add curriculum and diagnostic database entities
 
-- Status: `PLANNED`
+- Status: `IN PROGRESS`
 - Priority: `P1`
 - Dependency: BL-002 and BL-101
 - Related files: `src/db/models.py`, Alembic migrations, `src/db/ingest.py`
@@ -247,7 +247,7 @@ Acceptance criteria:
 
 ### BL-103 — Implement an explainable first recommendation engine
 
-- Status: `PLANNED`
+- Status: `IN PROGRESS`
 - Priority: `P1`
 - Dependency: BL-101 and BL-102
 
@@ -274,7 +274,7 @@ Acceptance criteria:
 
 ### BL-104 — Create the first API contract
 
-- Status: `PLANNED`
+- Status: `IN PROGRESS`
 - Priority: `P1`
 - Dependency: BL-102 and BL-103
 
@@ -298,7 +298,7 @@ Acceptance criteria:
 
 ### BL-105 — Implement authentication, school roles, and RLS
 
-- Status: `PLANNED`
+- Status: `IN PROGRESS`
 - Priority: `P1`
 - Dependency: BL-104 and school policy decisions
 

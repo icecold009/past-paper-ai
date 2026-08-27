@@ -1,17 +1,22 @@
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
+
+from sqlalchemy.orm import Session
 
 from src.analyze_questions import analyze_questions
 from src.build_prompt import build_prompt
+from src.curriculum_map import load_curriculum_map, upsert_curriculum_map, curriculum_coverage
 from src.db.ingest import ingest_subject
 from src.db.session import create_db_engine
 from src.extract_pdfs import extract_all_pdfs
 from src.generate_paper import generate_practice_paper
 from src.match_mark_schemes import match_mark_schemes
 from src.paths import RAW_PDF_ROOT, generated_prompt_md_path
+from src.preflight import run_preflight
 from src.segment_questions import segment_questions
-from src.subject_plan import load_subject_plan
+from src.subject_plan import load_subject_plan, load_variant_scope, variant_in_scope
 from src.tag_questions import tag_questions
 from src.utils import parse_caie_filename
 
@@ -40,8 +45,10 @@ def resolve_subjects(requested_subjects: list[str] | None) -> list[str]:
 
 def validate_raw_pdfs(subjects: list[str] | None = None) -> int:
     total_pdfs = 0
+    ignored_variant_pdfs = 0
     invalid_files: list[str] = []
     plan = load_subject_plan()
+    allowed_variants = load_variant_scope()
     selected_subjects = set(resolve_subjects(subjects)) if subjects else None
 
     if not RAW_PDF_ROOT.exists():
@@ -63,10 +70,16 @@ def validate_raw_pdfs(subjects: list[str] | None = None) -> int:
             if metadata["paper"] not in set(plan[metadata["subject"]]):
                 continue
 
+        if not variant_in_scope(metadata["variant"], allowed_variants):
+            ignored_variant_pdfs += 1
+            continue
+
         total_pdfs += 1
 
     if subjects and total_pdfs == 0:
         print(f"No PDFs found for requested subjects: {', '.join(subjects)}")
+        if ignored_variant_pdfs:
+            print(f"Ignored PDFs outside configured variant scope: {ignored_variant_pdfs}")
         print("You can still proceed with --mock in later stages.")
         return 0
 
@@ -83,11 +96,17 @@ def validate_raw_pdfs(subjects: list[str] | None = None) -> int:
         print(
             "Validation complete. "
             f"PDFs found: {total_pdfs}. "
+            f"Ignored outside variant scope: {ignored_variant_pdfs}. "
             f"Subjects: {', '.join(sorted(selected_subjects))}. "
             "Filename format is valid."
         )
     else:
-        print(f"Validation complete. PDFs found: {total_pdfs}. Filename format is valid.")
+        print(
+            "Validation complete. "
+            f"PDFs found: {total_pdfs}. "
+            f"Ignored outside variant scope: {ignored_variant_pdfs}. "
+            "Filename format is valid."
+        )
     return 0
 
 
@@ -95,8 +114,13 @@ def run_pipeline(
     subject: str,
     use_mock_if_missing: bool = False,
     subject_papers: dict[str, list[str]] | None = None,
+    allowed_variants: set[str] | None = None,
 ) -> int:
-    extracted = extract_all_pdfs(subjects=[subject], subject_papers=subject_papers)
+    extracted = extract_all_pdfs(
+        subjects=[subject],
+        subject_papers=subject_papers,
+        allowed_variants=allowed_variants,
+    )
     extracted_rows = len(extracted.get(subject, []))
     if not use_mock_if_missing and extracted_rows == 0:
         print(
@@ -107,8 +131,17 @@ def run_pipeline(
         return 1
 
     mock_papers = subject_papers.get(subject) if subject_papers else None
-    segment_questions(subject=subject, use_mock_if_missing=use_mock_if_missing, mock_papers=mock_papers)
-    analyze_questions(subject=subject, planned_papers=mock_papers)
+    segment_questions(
+        subject=subject,
+        use_mock_if_missing=use_mock_if_missing,
+        mock_papers=mock_papers,
+        allowed_variants=allowed_variants,
+    )
+    analyze_questions(
+        subject=subject,
+        planned_papers=mock_papers,
+        allowed_variants=allowed_variants,
+    )
     build_prompt(subject=subject)
     print(f"Pipeline completed for {subject}. Prompt ready at {generated_prompt_md_path(subject)}")
     return 0
@@ -131,6 +164,17 @@ def _build_parser() -> argparse.ArgumentParser:
 
     validate_parser = subparsers.add_parser("validate", help="Validate raw PDF folders and filename rules")
     _add_subject_argument(validate_parser)
+
+    preflight_parser = subparsers.add_parser(
+        "preflight",
+        help="Check configured subject/paper/variant coverage and derived artifacts",
+    )
+    _add_subject_argument(preflight_parser)
+    preflight_parser.add_argument(
+        "--output",
+        type=Path,
+        help="Write the JSON report to this path (default: outputs/data_preflight.json)",
+    )
 
     extract_parser = subparsers.add_parser("extract", help="Extract page-level text from PDFs")
     _add_subject_argument(extract_parser)
@@ -207,6 +251,13 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Override DATABASE_URL from .env",
     )
 
+    curriculum_parser = subparsers.add_parser(
+        "curriculum-map",
+        help="Import a reviewed, versioned school curriculum map",
+    )
+    curriculum_parser.add_argument("--path", type=Path, required=True)
+    curriculum_parser.add_argument("--database-url", help="Override DATABASE_URL from .env")
+
     run_parser = subparsers.add_parser("run", help="Run extract -> segment -> analyze -> build-prompt")
     _add_subject_argument(run_parser)
     run_parser.add_argument(
@@ -223,16 +274,25 @@ def main() -> int:
     args = parser.parse_args()
     subjects = resolve_subjects(args.subject)
     subject_plan = load_subject_plan()
+    allowed_variants = load_variant_scope()
 
     if args.command == "validate":
         return validate_raw_pdfs(subjects=args.subject)
+
+    if args.command == "preflight":
+        report, _ = run_preflight(requested_subjects=args.subject, output_path=args.output)
+        return 0 if report["status"] == "ready" else 1
 
     if not subjects:
         print("No subjects were discovered. Add PDFs or pass --subject to proceed.")
         return 1
 
     if args.command == "extract":
-        extracted = extract_all_pdfs(subjects=subjects, subject_papers=subject_plan)
+        extracted = extract_all_pdfs(
+            subjects=subjects,
+            subject_papers=subject_plan,
+            allowed_variants=allowed_variants,
+        )
         if args.fail_on_empty:
             empty_subjects = [subject for subject, df in extracted.items() if df.empty]
             if empty_subjects:
@@ -243,17 +303,26 @@ def main() -> int:
     if args.command == "segment":
         for subject in subjects:
             mock_papers = subject_plan.get(subject)
-            segment_questions(subject=subject, use_mock_if_missing=args.mock, mock_papers=mock_papers)
+            segment_questions(
+                subject=subject,
+                use_mock_if_missing=args.mock,
+                mock_papers=mock_papers,
+                allowed_variants=allowed_variants,
+            )
         return 0
 
     if args.command == "match":
         for subject in subjects:
-            match_mark_schemes(subject=subject)
+            match_mark_schemes(subject=subject, allowed_variants=allowed_variants)
         return 0
 
     if args.command == "analyze":
         for subject in subjects:
-            analyze_questions(subject=subject, planned_papers=subject_plan.get(subject))
+            analyze_questions(
+                subject=subject,
+                planned_papers=subject_plan.get(subject),
+                allowed_variants=allowed_variants,
+            )
         return 0
 
     if args.command == "build-prompt":
@@ -268,6 +337,7 @@ def main() -> int:
                 subject=subject,
                 use_mock_if_missing=args.mock,
                 subject_papers=subject_plan,
+                allowed_variants=allowed_variants,
             )
             if result != 0:
                 has_failure = True
@@ -296,6 +366,7 @@ def main() -> int:
                 limit=args.limit,
                 dry_run=args.dry_run,
                 delay_seconds=args.delay,
+                allowed_variants=allowed_variants,
             )
         return 0
 
@@ -303,8 +374,25 @@ def main() -> int:
         engine = create_db_engine(args.database_url)
         try:
             for subject in subjects:
-                summary = ingest_subject(subject, engine=engine)
+                summary = ingest_subject(
+                    subject,
+                    engine=engine,
+                    allowed_variants=allowed_variants,
+                )
                 print(f"Ingested {subject}: {summary}")
+        finally:
+            engine.dispose()
+        return 0
+
+    if args.command == "curriculum-map":
+        document = load_curriculum_map(args.path)
+        engine = create_db_engine(args.database_url)
+        try:
+            with Session(engine) as session:
+                summary = upsert_curriculum_map(session, document)
+                print(f"Imported curriculum map: {summary}")
+                for subject in document.subjects:
+                    print(curriculum_coverage(session, subject_code=subject.code))
         finally:
             engine.dispose()
         return 0

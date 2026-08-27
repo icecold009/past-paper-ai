@@ -39,14 +39,17 @@ database ingestion remain explicit reviewable operations.
 
 Current artifacts live under `data/extracted/`, `outputs/`, and `prompts/`.
 The v1 FastAPI service now exists alongside the batch pipeline. Authentication,
-deployment, monitoring, and CDN are documented as planned work, not existing
-features. The current code does not yet contain the target school’s Grade 8–12
-curriculum map, diagnostic engine, chapter-level weakness profile, or
-recommendation service; those are explicitly planned next-stage requirements.
+deployment, monitoring, CDN, identity-provider integration, and PostgreSQL RLS
+remain planned work. The repository now contains a reviewed-map importer,
+approved-content filtering, deterministic chapter evidence/recommendations,
+diagnostic persistence, and retry-safe practice sessions. The actual school
+Grade 8–12 map, real QP/MS corpus, Gemini review gate, and production grading
+policy still require external review and data.
 
 ## Source-of-truth map
 
 - Subject and paper configuration: `config/subject_plan.json`
+- Variant scope and paper marks: `config/subject_plan.json` and `src/subject_plan.py`
 - Filename parsing and normalized metadata: `src/utils.py`
 - Canonical paths: `src/paths.py`
 - CLI commands: `src/cli.py`

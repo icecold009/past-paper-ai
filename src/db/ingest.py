@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from src.db.models import MarkSchemePoint, Question, Subject
 from src.db.session import create_db_engine
 from src.paths import qp_ms_pairs_csv_path, tagged_questions_csv_path
-from src.subject_plan import load_subject_plan
+from src.subject_plan import load_subject_plan, load_variant_scope, variant_in_scope
 
 logger = logging.getLogger(__name__)
 
@@ -79,17 +79,30 @@ def _match_key(row: pd.Series) -> tuple[str, str, int, str, str]:
     )
 
 
-def _load_tagged_questions(path: Path, subject: str) -> pd.DataFrame:
+def _load_tagged_questions(
+    path: Path,
+    subject: str,
+    allowed_variants: set[str] | None = None,
+) -> pd.DataFrame:
     if not path.exists():
         raise FileNotFoundError(f"Missing tagged questions CSV: {path}. Run the tag step first.")
     tagged = pd.read_csv(path)
     missing = _TAGGED_REQUIRED_COLUMNS.difference(set(tagged.columns))
     if missing:
         raise ValueError(f"Tagged CSV missing required columns: {', '.join(sorted(missing))}")
-    return tagged[tagged["subject"].astype(str).str.strip() == str(subject)].copy()
+    filtered = tagged[tagged["subject"].astype(str).str.strip() == str(subject)].copy()
+    if allowed_variants is not None:
+        filtered = filtered[
+            filtered["variant"].map(lambda value: variant_in_scope(value, allowed_variants))
+        ]
+    return filtered
 
 
-def _load_pair_keys(path: Path, subject: str) -> set[tuple[str, str, int, str, str]]:
+def _load_pair_keys(
+    path: Path,
+    subject: str,
+    allowed_variants: set[str] | None = None,
+) -> set[tuple[str, str, int, str, str]]:
     if not path.exists():
         logger.warning("Missing QP/MS pairs CSV: %s; no mark-scheme points will be attached", path)
         return set()
@@ -98,6 +111,10 @@ def _load_pair_keys(path: Path, subject: str) -> set[tuple[str, str, int, str, s
     if missing:
         raise ValueError(f"Pairs CSV missing required columns: {', '.join(sorted(missing))}")
     filtered = pairs[pairs["subject"].astype(str).str.strip() == str(subject)]
+    if allowed_variants is not None:
+        filtered = filtered[
+            filtered["variant"].map(lambda value: variant_in_scope(value, allowed_variants))
+        ]
     return {_match_key(row) for _, row in filtered.iterrows()}
 
 
@@ -225,13 +242,14 @@ def ingest_subject(
     engine: Engine | None = None,
     tagged_csv: Path | None = None,
     pairs_csv: Path | None = None,
+    allowed_variants: set[str] | None = None,
 ) -> dict[str, int]:
     """Idempotently ingest one subject's tagged questions and paired MS points."""
 
     tagged_csv = tagged_csv or tagged_questions_csv_path(subject)
     pairs_csv = pairs_csv or qp_ms_pairs_csv_path(subject)
-    tagged = _load_tagged_questions(tagged_csv, subject)
-    pair_keys = _load_pair_keys(pairs_csv, subject)
+    tagged = _load_tagged_questions(tagged_csv, subject, allowed_variants)
+    pair_keys = _load_pair_keys(pairs_csv, subject, allowed_variants)
     owns_engine = engine is None
     engine = engine or create_db_engine()
 
@@ -306,9 +324,14 @@ def main() -> int:
         parser.error("pass --subject or configure subjects in config/subject_plan.json")
 
     engine = create_db_engine(args.database_url)
+    allowed_variants = load_variant_scope()
     try:
         for subject in subjects:
-            summary = ingest_subject(subject, engine=engine)
+            summary = ingest_subject(
+                subject,
+                engine=engine,
+                allowed_variants=allowed_variants,
+            )
             print(f"Ingested {subject}: {summary}")
     finally:
         engine.dispose()

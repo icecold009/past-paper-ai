@@ -6,11 +6,17 @@
 - Implemented: SQLAlchemy models, Alembic initial migration, database session setup, and CSV ingestion
 - Locally verified: migration and idempotent ingestion against SQLite
 - Target: PostgreSQL for deployed application behavior
-- Not implemented yet: API endpoints, authentication provider integration, RLS policies, production backups, and user-facing grading services
+- The personalization foundation now includes curriculum chapters, reviewed question mappings, diagnostic evidence,
+  diagnostic/practice persistence, explainable recommendation records, and local signed-request ownership checks.
+  Identity-provider integration, PostgreSQL RLS policies, production backups, and the final user-facing grading policy
+  remain incomplete.
 
 The database is the future application source for reviewed Cambridge content and student learning history. CSV and JSON artifacts remain the source/interchange layer for the batch pipeline.
 
-The current schema is only a foundation for the product’s central promise. It stores topic/subtopic mastery, but it does not yet fully represent the target school’s Grade 8–12 curriculum chapters, diagnostic evidence, recommendation reasons, or school/class boundaries. Those gaps must be addressed before personalized recommendations are treated as production-ready.
+The current schema is still a foundation for the product’s central promise. It can represent versioned school chapters,
+reviewed question mappings, diagnostic evidence, recommendation reasons, and practice state, but it does not yet encode
+the actual school map or production identity/RLS boundaries. Those gaps must be addressed before personalized
+recommendations are treated as production-ready.
 
 ## 2. Entity relationship overview
 
@@ -140,6 +146,17 @@ For the target product, `mastery` should eventually be linked to an approved cur
 | `position` | integer | order shown to the learner |
 
 The composite primary key is `paper_id + question_id`; `position` preserves ordering. If the product later allows the same question more than once in a paper, this key will need to change to a surrogate row ID plus a position uniqueness rule.
+
+### 3.9 Personalization and practice foundation
+
+The current migration also implements `curriculum_chapters`, `question_chapter_mappings`, `diagnostic_evidence`,
+`recommendations`, `diagnostics`, `diagnostic_responses`, `practice_sessions`, and `practice_answers`. Chapter and
+question mappings remain explicitly reviewable; recommendation queries use only mappings and chapters with
+`review_status = 'approved'`. Diagnostic responses may be stored before scoring, while practice submission never
+creates marks without a separate grading result.
+
+Users now carry role, school, grade-stage, and active-state metadata. These fields support the application ownership
+boundary but do not replace a school-approved identity provider or PostgreSQL RLS policy.
 
 ## 4. Relationships and deletion behavior
 

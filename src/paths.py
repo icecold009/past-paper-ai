@@ -45,3 +45,7 @@ def generated_prompt_md_path(subject: str) -> Path:
 
 def generated_paper_md_path(subject: str) -> Path:
     return OUTPUTS_DIR / f"{subject}_practice_paper_draft.md"
+
+
+def preflight_json_path() -> Path:
+    return OUTPUTS_DIR / "data_preflight.json"

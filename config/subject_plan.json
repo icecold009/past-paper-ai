@@ -1,11 +1,16 @@
 {
+    "variants": [
+        "2"
+    ],
     "subjects": [
         {
             "code": "9618",
             "name": "Computer Science",
             "papers": [
                 "p1",
-                "p2"
+                "p2",
+                "p3",
+                "p4"
             ]
         },
         {
@@ -13,6 +18,8 @@
             "name": "Mathematics",
             "papers": [
                 "p1",
+                "p3",
+                "p4",
                 "p5"
             ]
         },
@@ -21,6 +28,8 @@
             "name": "Further Mathematics",
             "papers": [
                 "p1",
+                "p2",
+                "p3",
                 "p4"
             ]
         },
@@ -29,7 +38,10 @@
             "name": "Physics",
             "papers": [
                 "p1",
-                "p2"
+                "p2",
+                "p3",
+                "p4",
+                "p5"
             ]
         }
     ]
