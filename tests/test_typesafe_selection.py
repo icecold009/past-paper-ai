@@ -126,6 +126,58 @@ class TypeSafeSelectionTests(unittest.TestCase):
         self.assertEqual(low_confidence.source, "deterministic")
         self.assertEqual(shadow.source, "deterministic")
 
+    def test_provider_timeout_falls_back(self) -> None:
+        states = [_state(1, position=1), _state(2, position=2, score=0.5)]
+        candidates = build_candidates(states)
+        context = build_selection_context(
+            states,
+            candidates,
+            subject_code="9618",
+            grade_stage="A Level",
+        )
+
+        class TimeoutSelector:
+            def choose(self, context):
+                raise TimeoutError("provider timeout")
+
+        decision = choose_with_fallback(
+            context,
+            selector=TimeoutSelector(),
+            mode="active",
+            min_confidence=0.55,
+        )
+
+        self.assertEqual(decision.source, "deterministic")
+        self.assertEqual(decision.candidate_id, "chapter:1:practice")
+
+    def test_malformed_provider_response_falls_back(self) -> None:
+        states = [_state(1, position=1)]
+        candidates = build_candidates(states)
+        context = build_selection_context(
+            states,
+            candidates,
+            subject_code="9618",
+            grade_stage="A Level",
+        )
+        client = TypeSafeChoiceClient(
+            RecommendationConfig(
+                api_key="test-key",
+                endpoint="https://typesafe.invalid/choice",
+                mode="active",
+            ),
+            transport=lambda *args: {"unexpected": "shape"},
+        )
+
+        decision = choose_with_fallback(
+            context,
+            selector=client,
+            mode="active",
+            min_confidence=0.55,
+        )
+
+        self.assertEqual(decision.source, "deterministic")
+        self.assertEqual(decision.candidate_id, "chapter:1:practice")
+
     def test_http_adapter_keeps_request_to_derived_state(self) -> None:
         states = [_state(1, position=1)]
         candidates = build_candidates(states)
