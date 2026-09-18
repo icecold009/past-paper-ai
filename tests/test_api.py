@@ -12,7 +12,17 @@ from starlette.requests import Request
 from api.grading import GeminiGrade, grade_answer
 from api.main import create_app, create_attempt, get_mastery, list_questions, list_subjects
 from api.schemas import AttemptCreate
-from src.db.models import Attempt, Base, MarkSchemePoint, Mastery, Question, Subject, User
+from src.db.models import (
+    Attempt,
+    Base,
+    CurriculumChapter,
+    MarkSchemePoint,
+    Mastery,
+    Question,
+    QuestionChapterMapping,
+    Subject,
+    User,
+)
 
 
 class _FakeGrader:
@@ -70,6 +80,26 @@ class ApiTests(unittest.TestCase):
             )
             session.add(question)
             session.flush()
+            chapter = CurriculumChapter(
+                subject_id=subject.id,
+                grade_stage="AS",
+                syllabus_revision="2025",
+                map_version="approved-v1",
+                chapter_code="1.1",
+                name="Data representation",
+                position=1,
+                review_status="approved",
+            )
+            session.add(chapter)
+            session.flush()
+            session.add(
+                QuestionChapterMapping(
+                    question_id=question.id,
+                    chapter_id=chapter.id,
+                    confidence=1.0,
+                    review_status="approved",
+                )
+            )
             session.add(
                 MarkSchemePoint(
                     question_id=question.id,
@@ -128,6 +158,18 @@ class ApiTests(unittest.TestCase):
 
         self.assertEqual(subjects[0].code, "9618")
         self.assertEqual(questions[0].id, 11)
+
+    def test_chapter_filter_uses_only_approved_mapping(self) -> None:
+        with Session(self.engine) as session:
+            chapter = session.scalar(select(CurriculumChapter))
+            assert chapter is not None
+            questions = list_questions(
+                subject="9618",
+                chapter_id=chapter.id,
+                session=session,
+            )
+
+        self.assertEqual([question.id for question in questions], [11])
 
     def test_attempt_is_stored_and_updates_mastery(self) -> None:
         with Session(self.engine) as session:

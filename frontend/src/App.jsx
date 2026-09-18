@@ -77,7 +77,17 @@ function GuidanceCard({ guidance, loading, error, onRetry, onStart }) {
     <section className="guidance-card" aria-labelledby="guidance-heading">
       <p className="eyebrow">Personalized guidance</p>
       <h3 id="guidance-heading">Your next best step</h3>
-      <p>{guidance.summary}</p>
+      <p>{guidance.explanation || guidance.summary}</p>
+      {guidance.recommendation?.chapter && (
+        <p className="guidance-detail">
+          <strong>{guidance.recommendation.chapter.name}</strong> · {guidance.recommendation.activity_type || 'targeted practice'}
+        </p>
+      )}
+      {guidance.recommendation?.decision_source === 'typesafe' ? (
+        <p className="guidance-source">Adaptive selection</p>
+      ) : guidance.recommendation ? (
+        <p className="guidance-source">Recommended from your evidence</p>
+      ) : null}
       {guidance.recommendation && (
         <button className="button button-primary" type="button" onClick={() => onStart(guidance.recommendation)}>
           Start recommended question
@@ -285,6 +295,7 @@ export default function App() {
     subjectCode = selectedSubject,
     topicFilter = topic,
     commandWordFilter = commandWord,
+    chapterId = null,
   } = {}) {
     setQuestionsLoading(true)
     setQuestionsError('')
@@ -293,6 +304,7 @@ export default function App() {
         subject: subjectCode,
         topic: topicFilter,
         commandWord: commandWordFilter,
+        chapterId,
       })
       if (!loadedQuestions.length) {
         throw new Error('No reviewed questions match these filters. Try removing the topic filter.')
@@ -359,6 +371,7 @@ export default function App() {
       subjectCode: selectedSubject,
       topicFilter: recommendation.topic || '',
       commandWordFilter: recommendation.command_word || '',
+      chapterId: recommendation.chapter?.id || null,
     })
   }
 

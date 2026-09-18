@@ -15,6 +15,7 @@ from api.grading import GeminiGrade, grade_answer
 from api.auth import AuthContext, get_auth_context
 from api.papers import generate_weak_spot_paper
 from api.personalization import build_guidance, dismiss_recommendation, approved_chapters
+from api.recommendation_selection import RecommendationSelector
 from api.schemas import (
     AttemptCreate,
     CurriculumChapterResponse,
@@ -132,6 +133,10 @@ def _recommendation_response(recommendation: Recommendation, state: object | Non
         activity_type=recommendation.activity_type,
         rule_version=recommendation.rule_version,
         curriculum_version=recommendation.curriculum_version,
+        decision_source=recommendation.decision_source,
+        decision_version=recommendation.decision_version,
+        decision_confidence=recommendation.decision_confidence,
+        provider_model=recommendation.provider_model,
         dismissed_at=recommendation.dismissed_at,
     )
 
@@ -253,6 +258,7 @@ def create_app(
     engine: Engine | None = None,
     grader: Grader | None = None,
     auth_secret: str | None = None,
+    guidance_selector: RecommendationSelector | None = None,
 ) -> FastAPI:
     app = FastAPI(title="past-paper-ai API", version="0.1.0")
     app.state.engine = engine
@@ -260,6 +266,7 @@ def create_app(
     app.state.auth_secret = auth_secret or os.getenv("AUTH_SECRET", "").strip()
     app.state.paper_model = None
     app.state.paper_prompt_builder = None
+    app.state.guidance_selector = guidance_selector
     return app
 
 
@@ -299,16 +306,29 @@ def list_questions(
     subject: str | None = Query(default=None, min_length=1, max_length=16),
     topic: str | None = Query(default=None, min_length=1, max_length=255),
     command_word: str | None = Query(default=None, min_length=1, max_length=64),
+    chapter_id: int | None = Query(default=None, ge=1),
     limit: int = Query(default=50, ge=1, le=100),
     session: Session = Depends(_session_for_request),
 ) -> list[QuestionResponse]:
-    query = select(Question).join(Subject).order_by(Subject.code, Question.id).limit(limit)
-    if subject:
-        query = query.where(Subject.code == subject.strip())
-    if topic:
-        query = query.where(Question.topic == topic.strip())
-    if command_word:
-        query = query.where(Question.command_word == command_word.strip())
+    effective_subject = subject.strip() if isinstance(subject, str) else None
+    effective_topic = topic.strip() if isinstance(topic, str) else None
+    effective_command_word = command_word.strip() if isinstance(command_word, str) else None
+    effective_limit = limit if isinstance(limit, int) else 50
+    query = select(Question).join(Subject).order_by(Subject.code, Question.id).limit(effective_limit)
+    if effective_subject:
+        query = query.where(Subject.code == effective_subject)
+    if effective_topic:
+        query = query.where(Question.topic == effective_topic)
+    if effective_command_word:
+        query = query.where(Question.command_word == effective_command_word)
+    if isinstance(chapter_id, int) and chapter_id > 0:
+        query = query.join(
+            QuestionChapterMapping,
+            QuestionChapterMapping.question_id == Question.id,
+        ).where(
+            QuestionChapterMapping.chapter_id == chapter_id,
+            QuestionChapterMapping.review_status == "approved",
+        )
     questions = session.scalars(query).all()
     return [_question_response(question) for question in questions]
 
@@ -456,12 +476,17 @@ def list_curriculum(
     return [_chapter_response(chapter) for chapter in chapters]
 
 
+def _guidance_selector(request: Request) -> RecommendationSelector | None:
+    return getattr(request.app.state, "guidance_selector", None)
+
+
 @app.get("/guidance/{user_id}", response_model=GuidanceResponse)
 def get_guidance(
     user_id: int,
     subject: str = Query(min_length=1, max_length=16),
     grade_stage: str | None = Query(default=None, min_length=1, max_length=64),
     auth: AuthContext = Depends(get_auth_context),
+    selector: RecommendationSelector | None = Depends(_guidance_selector),
     session: Session = Depends(_session_for_request),
 ) -> GuidanceResponse:
     if user_id < 1:
@@ -476,6 +501,8 @@ def get_guidance(
         user_id=user.id,
         subject_id=db_subject.id,
         grade_stage=grade_stage or user.grade_stage,
+        subject_code=db_subject.code,
+        selector=selector,
     )
     session.commit()
     return GuidanceResponse(

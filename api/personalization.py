@@ -6,6 +6,15 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from api.recommendation_config import RecommendationConfig
+from api.recommendation_selection import (
+    RecommendationDecision,
+    RecommendationSelector,
+    build_candidates,
+    build_selection_context,
+    choose_with_fallback,
+)
+from api.typesafe_client import TypeSafeChoiceClient
 from src.db.models import (
     Attempt,
     CurriculumChapter,
@@ -151,6 +160,7 @@ def _recommendation_for(
     user_id: int,
     state: ChapterState,
     now: datetime,
+    decision: RecommendationDecision,
 ) -> Recommendation:
     recommendation = session.scalar(
         select(Recommendation)
@@ -181,8 +191,13 @@ def _recommendation_for(
             evidence_count=state.evidence_count,
             confidence=state.confidence,
             activity_type="targeted_practice",
-            rule_version=RULE_VERSION,
+            rule_version=decision.version,
             curriculum_version=state.chapter.map_version,
+            decision_source=decision.source,
+            decision_version=decision.version,
+            decision_confidence=decision.confidence,
+            provider_model=decision.provider_model,
+            selection_distribution=decision.probabilities,
             created_at=now,
         )
         session.add(recommendation)
@@ -191,8 +206,13 @@ def _recommendation_for(
         recommendation.reason = reason
         recommendation.evidence_count = state.evidence_count
         recommendation.confidence = state.confidence
-        recommendation.rule_version = RULE_VERSION
+        recommendation.rule_version = decision.version
         recommendation.curriculum_version = state.chapter.map_version
+        recommendation.decision_source = decision.source
+        recommendation.decision_version = decision.version
+        recommendation.decision_confidence = decision.confidence
+        recommendation.provider_model = decision.provider_model
+        recommendation.selection_distribution = decision.probabilities
     return recommendation
 
 
@@ -203,6 +223,9 @@ def build_guidance(
     subject_id: int,
     grade_stage: str | None = None,
     now: datetime | None = None,
+    subject_code: str | None = None,
+    selector: RecommendationSelector | None = None,
+    selection_config: RecommendationConfig | None = None,
 ) -> Guidance:
     now = now or datetime.now(timezone.utc)
     chapters = approved_chapters(session, subject_id=subject_id, grade_stage=grade_stage)
@@ -224,9 +247,46 @@ def build_guidance(
         for state in states
         if state.state in {"needs_practice", "developing"} and state.score is not None
     ]
-    selected = min(candidates, key=lambda state: (state.score or 0.0, state.chapter.position, state.chapter.id)) if candidates else None
+    config = selection_config or RecommendationConfig.from_env()
+    effective_mode = config.mode
+    effective_selector = selector
+    if selector is not None and selection_config is None:
+        effective_mode = "active"
+    elif selector is None and config.mode in {"active", "shadow"}:
+        effective_selector = TypeSafeChoiceClient(config)
+
+    recommendation_candidates = build_candidates(states, max_candidates=config.max_candidates)
+    context = build_selection_context(
+        states,
+        recommendation_candidates,
+        subject_code=subject_code or getattr(getattr(chapters[0], "subject", None), "code", ""),
+        grade_stage=grade_stage,
+    )
+    decision = choose_with_fallback(
+        context,
+        selector=effective_selector,
+        mode=effective_mode,
+        min_confidence=config.min_confidence,
+    )
+    state_by_chapter = {state.chapter.id: state for state in candidates}
+    state_by_candidate = {
+        candidate.candidate_id: state_by_chapter[candidate.chapter_id]
+        for candidate in recommendation_candidates
+        if candidate.chapter_id in state_by_chapter
+    }
+    selected = state_by_candidate.get(decision.candidate_id) if decision.candidate_id else None
+    if selected is None and candidates:
+        # The deterministic selector and validation should make this unreachable;
+        # retain the evidence-owned fallback if a custom selector misbehaves.
+        selected = candidates[0]
     if selected is not None:
-        recommendation = _recommendation_for(session, user_id=user_id, state=selected, now=now)
+        recommendation = _recommendation_for(
+            session,
+            user_id=user_id,
+            state=selected,
+            now=now,
+            decision=decision,
+        )
         return Guidance(
             state="needs_practice",
             explanation=recommendation.reason,

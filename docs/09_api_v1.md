@@ -22,7 +22,8 @@ The default development server listens on `http://127.0.0.1:8000`.
 - `GET /subjects` returns database subjects ordered by subject code.
 - `GET /guidance/{user_id}?subject=` returns the next personalized diagnostic, practice, or review recommendation
   with the topic, command word, question, and reason for the recommendation.
-- `GET /questions?subject=&topic=&command_word=&limit=` returns up to 100 questions with source metadata.
+- `GET /questions?subject=&topic=&command_word=&chapter_id=&limit=` returns up to 100 questions with source metadata. When
+  `chapter_id` is supplied, only questions with an approved mapping to that chapter are returned.
 - `POST /attempts` accepts `{user_id, question_id, submitted_answer_text}`. It requires stored mark-scheme points,
   validates Gemini's JSON grading result, stores the attempt, and updates the matching mastery cell with a transparent
   recency-weighted average of the latest 20 scored attempts. Attempts retain the grading model, policy version, and
@@ -36,6 +37,8 @@ The default development server listens on `http://127.0.0.1:8000`.
 - `GET /curriculum/{subject}` returns only approved, versioned school chapters.
 - `GET /guidance/{user_id}?subject=` returns `no_content`, `start_diagnostic`, `needs_practice`, or `on_track`, based on
   at least two scored attempts per chapter. It stores evidence and a deterministic, versioned recommendation reason.
+  Optional TypeSafe selection is server-side and disabled by default. Accepted recommendation responses include additive
+  `decision_source`, `decision_version`, `decision_confidence`, and `provider_model` provenance fields.
 - `POST /diagnostics` creates a retry-safe baseline question set from approved chapter mappings. Diagnostic answers are
   persisted with `PUT /diagnostics/{diagnostic_id}/responses/{question_id}` and closed with
   `POST /diagnostics/{diagnostic_id}/submit`; scoring remains a separate reviewed grading policy.
@@ -50,3 +53,15 @@ authentication.
 
 The paper endpoint uses the first configured paper in `SUBJECT_PAPER_MARKS` when `paper` is omitted. Its response may
 contain fewer marks than the target when no suitable unseen real questions remain and Gemini fallback is unavailable.
+
+## Optional TypeSafe guidance selection
+
+Configure the server with `TYPESAFE_GUIDANCE_MODE=off|shadow|active`. `off` is the safe default. `shadow` may call a
+configured provider but continues returning the deterministic recommendation. `active` uses a provider result only when
+it names one of the bounded, application-generated candidates and meets `TYPESAFE_MIN_CONFIDENCE`; failures fall back
+to deterministic guidance.
+
+The provider request contains only subject/stage context, curriculum version, derived chapter states, and stable candidate
+IDs such as `chapter:42:practice`. It does not contain raw student answers, question or mark-scheme text, user email,
+school identifiers, credentials, or authentication tokens. `TYPESAFE_API_URL` remains an explicit deployment setting so
+the provider adapter can be aligned with the verified live TypeSafe API contract before activation.

@@ -43,6 +43,7 @@ Priority:
 - Real Gemini tagging is blocked until `GEMINI_API_KEY` is configured.
 - The required 15–20-question manual syllabus review has not been completed.
 - The database now contains reviewed curriculum chapter, question-mapping, diagnostic-evidence, diagnostic response, practice-session, and explainable-recommendation entities. A reviewed-map importer, deterministic guidance service, and signed-request ownership boundary exist; school-approved mappings, identity-provider integration, PostgreSQL RLS, and grading policy remain incomplete.
+- An optional TypeSafe-backed recommendation selector now exists behind a provider-neutral boundary. It is off by default, preserves deterministic evidence policy, validates candidate IDs and confidence, records provenance, and falls back safely; live provider contract and performance validation remain open.
 - A v1 FastAPI service now exists; the frontend, authentication, RLS, teacher workflow, and production deployment remain incomplete.
 
 ## 4. P0 — trust and prerequisite blockers
@@ -350,6 +351,25 @@ Acceptance criteria:
 - The student can report incorrect question structure, marks, tags, or feedback.
 - Grading results retain evidence and version metadata.
 
+### BL-108 — Add bounded adaptive recommendation selection
+
+- Status: `IN PROGRESS`
+- Priority: `P1`
+- Dependency: BL-101, BL-102, BL-103, and the authenticated ownership boundary in BL-105
+
+Add an optional server-side TypeSafe choice layer to the canonical chapter guidance flow. TypeSafe may choose only from application-generated candidates; deterministic chapter eligibility, evidence calculation, mastery thresholds, curriculum scope, and fallback behavior remain code-owned.
+
+Acceptance criteria:
+
+- `off` is the default and existing deterministic guidance remains unchanged.
+- `shadow` returns the deterministic choice even when the provider responds.
+- `active` validates candidate IDs, confidence, and probability metadata before accepting a decision.
+- Provider timeout, rate limit, malformed response, unknown candidate, missing configuration, and low confidence all use deterministic fallback.
+- No raw answer text, question text, mark-scheme text, credentials, or school identifiers are sent to the provider.
+- Recommendation records expose separate decision provenance without overloading evidence confidence.
+- The frontend displays the chapter, activity, and provenance while preserving a validated chapter-filtered question route.
+- Live TypeSafe behavior, disposable PostgreSQL migration validation, browser fallback behavior, hosted deployment, and production RLS remain separately evidenced.
+
 ## 6. P2 — school product and platform maturity
 
 ### BL-201 — Teacher class dashboard
@@ -447,7 +467,8 @@ The next work should proceed one phase at a time:
 7. BL-102 and BL-103: implement the data model and explainable recommendation rules.
 8. BL-104 and BL-105: establish secure API and access boundaries.
 9. BL-106 and BL-107: build the student MVP and feedback loop.
-10. Start P2 work only after a real student/teacher pilot identifies the highest-value gaps.
+10. BL-108: validate the optional adaptive selector only after the deterministic and ownership boundaries are trusted.
+11. Start P2 work only after a real student/teacher pilot identifies the highest-value gaps.
 
 Do not skip BL-005, BL-001, or BL-002: incorrect tags or chapter mappings would poison every personalized feature built after them.
 
