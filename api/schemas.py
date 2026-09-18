@@ -148,6 +148,10 @@ class RecommendationResponse(BaseModel):
     activity_type: str
     rule_version: str
     curriculum_version: str
+    decision_source: Literal["deterministic", "typesafe"] = "deterministic"
+    decision_version: str = "deterministic-v1"
+    decision_confidence: float | None = Field(default=None, ge=0, le=1)
+    provider_model: str | None = None
     dismissed_at: datetime | None = None
 
 

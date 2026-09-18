@@ -17,6 +17,8 @@ from api.main import (
     submit_practice_session,
 )
 from api.personalization import build_guidance
+from api.recommendation_config import RecommendationConfig
+from api.recommendation_selection import RecommendationDecision
 from api.schemas import DiagnosticStartRequest, DiagnosticResponseSave, PracticeSessionCreate
 from src.db.models import (
     Attempt,
@@ -171,6 +173,54 @@ class PersonalizationTests(unittest.TestCase):
             assert guidance.recommendation is not None
             self.assertIn("targeted practice", guidance.recommendation.reason)
             self.assertEqual(guidance.recommendation.rule_version, "deterministic-v1")
+            self.assertEqual(guidance.recommendation.decision_source, "deterministic")
+
+    def test_guidance_accepts_only_a_valid_typesafe_candidate(self) -> None:
+        class FakeSelector:
+            def choose(self, context):
+                return RecommendationDecision(
+                    candidate_id="chapter:1:practice",
+                    source="typesafe",
+                    confidence=0.91,
+                    probabilities={"chapter:1:practice": 0.91},
+                    version="typesafe-choice-v1",
+                    provider_model="jev",
+                )
+
+        with Session(self.engine) as session:
+            session.add_all(
+                [
+                    Attempt(
+                        user_id=7,
+                        question_id=101,
+                        submitted_answer_text="weak",
+                        points_awarded={},
+                        marks_earned=0,
+                        marks_possible=2,
+                    ),
+                    Attempt(
+                        user_id=7,
+                        question_id=101,
+                        submitted_answer_text="still weak",
+                        points_awarded={},
+                        marks_earned=1,
+                        marks_possible=2,
+                    ),
+                ]
+            )
+            session.commit()
+            guidance = build_guidance(
+                session,
+                user_id=7,
+                subject_id=1,
+                selector=FakeSelector(),
+                selection_config=RecommendationConfig(mode="active"),
+            )
+
+            assert guidance.recommendation is not None
+            self.assertEqual(guidance.recommendation.decision_source, "typesafe")
+            self.assertEqual(guidance.recommendation.rule_version, "typesafe-choice-v1")
+            self.assertEqual(guidance.recommendation.provider_model, "jev")
 
     def test_auth_token_rejects_tampering_and_expiry(self) -> None:
         token = issue_token(user_id=7, secret="test-secret", expires_at=100)

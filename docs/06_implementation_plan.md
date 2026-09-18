@@ -42,7 +42,7 @@ Work rules:
 | 9 | Weak-spot paper generation | v1 slice implemented | Weakest-cell selection, unseen real-question weighting, labeled Gemini fallback questions, paper persistence, and frontend display; auth and full paper-taking flow remain |
 | 10 | Practice sessions and answer persistence | Foundation in progress | Retry-safe diagnostic/practice records and state transitions exist; full paper-taking and grading attachment remain |
 | 11 | Mark-scheme-aware grading and feedback | v1 slice implemented | Existing attempt grading preserves mark-scheme evidence; policy, human evaluation, corrections, and version metadata remain |
-| 12 | Mastery, weakness profiles, and recommendations | Foundation in progress | Transparent chapter evidence and explainable recommendations exist; approved mappings, evaluation, and cold-start rollout remain |
+| 12 | Mastery, weakness profiles, and recommendations | Foundation in progress | Transparent chapter evidence and explainable recommendations exist; bounded optional TypeSafe selection is implemented with live-provider validation, approved mappings, evaluation, and cold-start rollout still open |
 | B | Adaptive study engine revamp | In progress | Normalized content packs, optional source providers, personalized guidance, and student-first runtime flow |
 | 13 | Production deployment and operations | Planned | Requires security, backups, monitoring, and recovery drills |
 
@@ -240,6 +240,14 @@ Do not build visual polish ahead of the question/marks/feedback data contract.
 - Store review timestamps and scheduling decisions.
 - Store recommendation reason, evidence, confidence, and rule/model version.
 - Evaluate recommendations against actual improvement rather than click-through alone.
+
+### Optional adaptive selection boundary
+
+The guidance service may use TypeSafe only as a bounded selector over candidates already produced by deterministic application code. The deterministic service continues to own approved-chapter filtering, grade-stage filtering, evidence counts, mastery thresholds, insufficient-evidence states, curriculum versions, and ownership checks.
+
+The server supports `off`, `shadow`, and `active` modes. `off` is the default for tests and local development. `shadow` calls the provider but returns and persists the deterministic choice. `active` accepts a provider result only when it names an application-generated candidate and meets the configured confidence threshold; unknown, malformed, slow, unavailable, or low-confidence results fall back to the deterministic choice.
+
+Only derived chapter state and stable candidate IDs are eligible for the provider request. Raw answers, question text, mark schemes, credentials, school identifiers, and authentication tokens are not sent. Recommendation provenance is stored separately from evidence confidence. Live TypeSafe API behavior remains unverified in this environment because the official documentation/provider endpoint was inaccessible during implementation.
 
 ## 14. Phase 12 — production operations
 

@@ -34,10 +34,11 @@ export function getGuidance({ userId, subject }) {
   return request(`/guidance/${userId}?${params.toString()}`)
 }
 
-export function buildQuestionsPath({ subject, topic = '', commandWord = '' }) {
+export function buildQuestionsPath({ subject, topic = '', commandWord = '', chapterId = null }) {
   const params = new URLSearchParams({ subject, limit: '100' })
   if (topic.trim()) params.set('topic', topic.trim())
   if (commandWord.trim()) params.set('command_word', commandWord.trim())
+  if (chapterId) params.set('chapter_id', String(chapterId))
   return `/questions?${params.toString()}`
 }
 

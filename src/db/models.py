@@ -222,6 +222,15 @@ class Recommendation(Base):
     activity_type: Mapped[str] = mapped_column(String(64), nullable=False)
     rule_version: Mapped[str] = mapped_column(String(64), nullable=False)
     curriculum_version: Mapped[str] = mapped_column(String(64), nullable=False, default="unversioned", server_default="unversioned")
+    decision_source: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="deterministic", server_default="deterministic"
+    )
+    decision_version: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="deterministic-v1", server_default="deterministic-v1"
+    )
+    decision_confidence: Mapped[float | None] = mapped_column(Float)
+    provider_model: Mapped[str | None] = mapped_column(String(128))
+    selection_distribution: Mapped[dict[str, float] | None] = mapped_column(JSONB_TYPE)
     dismissed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
