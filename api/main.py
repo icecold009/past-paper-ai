@@ -612,7 +612,9 @@ def save_diagnostic_response(
     diagnostic = session.get(Diagnostic, diagnostic_id)
     if diagnostic is None:
         raise HTTPException(status_code=404, detail=f"Diagnostic {diagnostic_id} was not found")
-    _require_user_access(session, auth, diagnostic.user_id)
+    user = _require_user_access(session, auth, diagnostic.user_id)
+    if payload.user_id != user.id:
+        raise HTTPException(status_code=403, detail="You may only save answers for your own diagnostic")
     if diagnostic.state != "active":
         raise HTTPException(status_code=409, detail="This diagnostic is no longer active")
     response = session.scalar(
@@ -726,7 +728,9 @@ def save_practice_answer(
     practice = session.get(PracticeSession, session_id)
     if practice is None:
         raise HTTPException(status_code=404, detail=f"Practice session {session_id} was not found")
-    _require_user_access(session, auth, practice.user_id)
+    user = _require_user_access(session, auth, practice.user_id)
+    if payload.user_id != user.id:
+        raise HTTPException(status_code=403, detail="You may only save answers for your own practice session")
     if practice.state not in {"draft", "active"}:
         raise HTTPException(status_code=409, detail="This practice session is no longer editable")
     answer = session.scalar(
@@ -786,3 +790,4 @@ def create_paper(
         model=request.app.state.paper_model,
         prompt_builder=prompt_builder or build_prompt,
     )
+

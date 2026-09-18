@@ -43,6 +43,7 @@ Priority:
 - Real Gemini tagging is blocked until `GEMINI_API_KEY` is configured.
 - The required 15–20-question manual syllabus review has not been completed.
 - The database now contains reviewed curriculum chapter, question-mapping, diagnostic-evidence, diagnostic response, practice-session, and explainable-recommendation entities. A reviewed-map importer, deterministic guidance service, and signed-request ownership boundary exist; school-approved mappings, identity-provider integration, PostgreSQL RLS, and grading policy remain incomplete.
+- The authenticated diagnostic/practice answer-save endpoints now reject payload identities that do not match the verified resource owner; this is local ownership hardening, not identity-provider or PostgreSQL RLS completion.
 - An optional TypeSafe-backed recommendation selector now exists behind a provider-neutral boundary. It is off by default, preserves deterministic evidence policy, validates candidate IDs and confidence, records provenance, and falls back safely; live provider contract and performance validation remain open.
 - A v1 FastAPI service now exists; the frontend, authentication, RLS, teacher workflow, and production deployment remain incomplete.
 
@@ -483,3 +484,4 @@ An item is complete only when:
 - generated artifacts are reproducible;
 - security and privacy implications are reviewed;
 - the result is committed on a feature branch and handed off with the next gate.
+

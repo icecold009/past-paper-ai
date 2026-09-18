@@ -13,6 +13,7 @@ from api.main import (
     create_practice_session,
     get_guidance,
     save_practice_answer,
+    save_diagnostic_response,
     start_diagnostic,
     submit_practice_session,
 )
@@ -294,6 +295,50 @@ class PersonalizationTests(unittest.TestCase):
         with Session(self.engine) as session:
             self.assertEqual(session.scalar(select(User).where(User.id == 7)).school_id, "school-a")
 
+    def test_answer_saves_reject_payload_identity_mismatch(self) -> None:
+        with Session(self.engine) as session:
+            diagnostic = start_diagnostic(
+                DiagnosticStartRequest(
+                    user_id=7,
+                    subject="9618",
+                    grade_stage="AS",
+                    idempotency_key="diagnostic-identity",
+                ),
+                auth=self.auth,
+                session=session,
+            )
+            diagnostic_question_id = diagnostic.questions[0].id
+            with self.assertRaises(HTTPException) as diagnostic_error:
+                save_diagnostic_response(
+                    diagnostic.id,
+                    diagnostic_question_id,
+                    DiagnosticResponseSave(user_id=8, answer_text="not mine"),
+                    auth=self.auth,
+                    session=session,
+                )
+            self.assertEqual(diagnostic_error.exception.status_code, 403)
+
+            practice = create_practice_session(
+                PracticeSessionCreate(
+                    user_id=7,
+                    subject="9618",
+                    question_ids=[101],
+                    idempotency_key="practice-identity",
+                ),
+                auth=self.auth,
+                session=session,
+            )
+            with self.assertRaises(HTTPException) as practice_error:
+                save_practice_answer(
+                    practice.id,
+                    101,
+                    DiagnosticResponseSave(user_id=8, answer_text="not mine"),
+                    auth=self.auth,
+                    session=session,
+                )
+            self.assertEqual(practice_error.exception.status_code, 403)
+
 
 if __name__ == "__main__":
     unittest.main()
+
