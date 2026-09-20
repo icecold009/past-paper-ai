@@ -40,10 +40,12 @@ The default development server listens on `http://127.0.0.1:8000`.
   Optional TypeSafe selection is server-side and disabled by default. Accepted recommendation responses include additive
   `decision_source`, `decision_version`, `decision_confidence`, and `provider_model` provenance fields.
 - `POST /diagnostics` creates a retry-safe baseline question set from approved chapter mappings. Diagnostic answers are
-  persisted with `PUT /diagnostics/{diagnostic_id}/responses/{question_id}` and closed with
+  persisted with `PUT /diagnostics/{diagnostic_id}/responses/{question_id}`. The answer payload user must match the
+  authenticated resource owner; mismatches are rejected before persistence. Diagnostics are closed with
   `POST /diagnostics/{diagnostic_id}/submit`; scoring remains a separate reviewed grading policy.
 - `POST /practice/sessions` creates an active retry-safe session, while the answer and submit endpoints persist its state
-  without silently fabricating marks.
+  without silently fabricating marks. Practice-answer payload identity is checked against both the authenticated owner
+  and the practice-session owner.
 
 The legacy `/attempts`, `/mastery/{user_id}`, and `/papers/generate` endpoints still accept a direct `user_id` for
 backward-compatible local development. The new personalized state-changing endpoints require an HMAC-verified Bearer
@@ -65,3 +67,4 @@ The provider request contains only subject/stage context, curriculum version, de
 IDs such as `chapter:42:practice`. It does not contain raw student answers, question or mark-scheme text, user email,
 school identifiers, credentials, or authentication tokens. `TYPESAFE_API_URL` remains an explicit deployment setting so
 the provider adapter can be aligned with the verified live TypeSafe API contract before activation.
+
