@@ -337,11 +337,10 @@ def list_questions(
 def create_attempt(
     payload: AttemptCreate,
     request: Request,
+    auth: AuthContext = Depends(get_auth_context),
     session: Session = Depends(_session_for_request),
 ) -> GradingResult:
-    user = session.get(User, payload.user_id)
-    if user is None:
-        raise HTTPException(status_code=404, detail=f"User {payload.user_id} was not found")
+    user = _require_user_access(session, auth, payload.user_id)
 
     question = session.scalar(select(Question).where(Question.id == payload.question_id))
     if question is None:
@@ -370,7 +369,7 @@ def create_attempt(
 
     now = datetime.now(timezone.utc)
     attempt = Attempt(
-        user_id=payload.user_id,
+        user_id=user.id,
         question_id=payload.question_id,
         submitted_answer_text=payload.submitted_answer_text,
         points_awarded={
@@ -388,13 +387,13 @@ def create_attempt(
     session.add(attempt)
     session.flush()
     mastery_updated = _recompute_mastery(
-        session, user_id=payload.user_id, question=question, now=now
+        session, user_id=user.id, question=question, now=now
     )
     session.commit()
 
     return GradingResult(
         attempt_id=attempt.id,
-        user_id=payload.user_id,
+        user_id=user.id,
         question_id=payload.question_id,
         points_hit=result.points_hit,
         points_missed=result.points_missed,
@@ -412,13 +411,10 @@ def create_attempt(
 def get_mastery(
     user_id: int,
     subject: str = Query(min_length=1, max_length=16),
+    auth: AuthContext = Depends(get_auth_context),
     session: Session = Depends(_session_for_request),
 ) -> MasteryGridResponse:
-    if user_id < 1:
-        raise HTTPException(status_code=422, detail="user_id must be positive")
-    user = session.get(User, user_id)
-    if user is None:
-        raise HTTPException(status_code=404, detail=f"User {user_id} was not found")
+    user = _require_user_access(session, auth, user_id)
 
     db_subject = session.scalar(select(Subject).where(Subject.code == subject.strip()))
     if db_subject is None:
@@ -433,7 +429,7 @@ def get_mastery(
         )
         .distinct()
     ).all()
-    mastery_rows = session.scalars(select(Mastery).where(Mastery.user_id == user_id)).all()
+    mastery_rows = session.scalars(select(Mastery).where(Mastery.user_id == user.id)).all()
     mastery_by_dimension = {
         (row.topic, row.subtopic, row.command_word): row for row in mastery_rows
     }
@@ -457,7 +453,7 @@ def get_mastery(
         )
 
     return MasteryGridResponse(
-        user_id=user_id,
+        user_id=user.id,
         subject=_subject_response(db_subject),
         cells=cells,
     )
@@ -781,8 +777,10 @@ def submit_practice_session(
 def create_paper(
     payload: PaperGenerateRequest,
     request: Request,
+    auth: AuthContext = Depends(get_auth_context),
     session: Session = Depends(_session_for_request),
 ) -> GeneratedPaperResponse:
+    _require_user_access(session, auth, payload.user_id)
     prompt_builder = request.app.state.paper_prompt_builder
     return generate_weak_spot_paper(
         session,

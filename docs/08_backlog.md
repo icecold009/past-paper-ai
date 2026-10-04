@@ -3,7 +3,7 @@
 ## 1. Purpose and status
 
 - Project: Past Paper AI
-- Reviewed against repository: 2026-07-26
+- Reviewed against repository: 2026-10-04
 - Backlog status: current incomplete work and decisions
 - Product north star: help Cambridge Grades 8–12 students at the target school identify weak subjects and chapters, understand why they need attention, and complete targeted activities that improve them
 
@@ -45,7 +45,9 @@ Priority:
 - The database now contains reviewed curriculum chapter, question-mapping, diagnostic-evidence, diagnostic response, practice-session, and explainable-recommendation entities. A reviewed-map importer, deterministic guidance service, and signed-request ownership boundary exist; school-approved mappings, identity-provider integration, PostgreSQL RLS, and grading policy remain incomplete.
 - The authenticated diagnostic/practice answer-save endpoints now reject payload identities that do not match the verified resource owner; this is local ownership hardening, not identity-provider or PostgreSQL RLS completion.
 - An optional TypeSafe-backed recommendation selector now exists behind a provider-neutral boundary. It is off by default, preserves deterministic evidence policy, validates candidate IDs and confidence, records provenance, and falls back safely; live provider contract and performance validation remain open.
-- A v1 FastAPI service now exists; the frontend, authentication, RLS, teacher workflow, and production deployment remain incomplete.
+- A v1 FastAPI service now exists. The legacy attempt, mastery, and paper-generation routes require the existing signed-request owner check; external identity-provider login, school roles, PostgreSQL RLS, and production deployment remain incomplete.
+- The product owner confirmed worldwide availability for students aged 14–18 studying Cambridge IGCSE, AS Level, or A Level, starting with subject codes `9618`, `9702`, `9231`, and `9709`. The intended product uses study notes, school exams, and other learning data to identify weak points and produce study plans based on time until the next exam. Worldwide availability is product scope; provider, source-rights, privacy, and cross-border eligibility still require validation before serving each market.
+- The AI provider and student-data processing arrangement remain undecided. No evidence of permission to store, display, adapt, or transmit Cambridge past-paper content, school exams, notes, or other third-party learning material has been supplied. School data permissions—including collection, teacher visibility, retention, and deletion—remain undecided. These are release gates.
 
 ## 4. P0 — trust and prerequisite blockers
 
@@ -193,6 +195,14 @@ Acceptance criteria:
 - JSONB behavior in `attempts.points_awarded` is verified.
 - Connection secrets are supplied through `.env`, never committed.
 
+### BL-206 — Copyright, provider, and school data policy
+
+- Status: DECISION
+- Priority: P0
+- Dependency: school and policy-owner review
+
+Document permitted use, storage, access, retention, deletion, provider transmission, and sharing rules for CAIE PDFs, extracted content, mark schemes, student answers, diagnostic data, and teacher reports. Confirm the selected provider and its age/data terms before sending student data.
+
 ## 5. P1 — personalized learning foundation
 
 ### BL-101 — Define diagnostic design
@@ -305,6 +315,8 @@ Acceptance criteria:
 - Dependency: BL-104 and school policy decisions
 
 Implement student, teacher/reviewer, and school-admin access with server-side ownership checks and database isolation.
+
+The legacy attempt, mastery, and paper-generation routes now require the existing signed Bearer-token boundary and enforce self-ownership. This closes anonymous and cross-user requests when authentication is configured, but does not provide customer login, revocation, school-role authorization, or PostgreSQL RLS.
 
 Acceptance criteria:
 
@@ -431,14 +443,6 @@ Add:
 - deployment rollback procedures;
 - resource limits for PDF/Gemini batch jobs.
 
-### BL-206 — Copyright and school data policy
-
-- Status: `DECISION`
-- Priority: `P2`
-- Dependency: school and policy-owner review
-
-Document permitted use, storage, access, retention, deletion, and sharing rules for CAIE PDFs, extracted content, mark schemes, student answers, diagnostic data, and teacher reports.
-
 ## 7. Decisions needed from the product owner/school
 
 These decisions should be answered before the corresponding implementation tasks start:
@@ -454,12 +458,22 @@ These decisions should be answered before the corresponding implementation tasks
 9. Is generated-paper creation part of the first student release or a later feature?
 10. What source content may be stored and shown to students under the school’s policy?
 11. What retention/deletion rules apply to minor/student data and answer history?
+12. Which AI provider/deployment and data-processing terms are permitted for the intended student ages, countries, and answer-grading flow?
+
+### Responses recorded on 2026-10-04
+
+- Intended audience and availability: students ages 14–18 studying Cambridge IGCSE, AS Level, or A Level; the product is intended to be available worldwide. Market-specific provider, privacy, and data-transfer eligibility is still unverified.
+- Initial subjects: `9618` Computer Science, `9702` Physics, `9231` Further Mathematics, and `9709` Mathematics. The current paper-level configuration is maintained in `config/subject_plan.json`.
+- Product intent: use study notes, school exams, and other learning data to find weak points and create study plans based on time until the next exam. Exact data fields, permission/consent, retention, teacher visibility, and deletion policy remain undecided.
+- AI provider: undecided. No provider/data-processing arrangement is approved for student data.
+- Content: Cambridge past papers, school exams, notes, and other learning material are intended inputs. No evidence of permission to store, display, adapt, or transmit these materials was supplied; source rights remain unverified.
+- School data permissions: undecided, including teacher visibility, retention, and deletion.
 
 ## 8. Recommended execution order
 
 The next work should proceed one phase at a time:
 
-1. BL-001: confirm school curriculum scope.
+1. BL-001 and BL-206: confirm school scope, provider eligibility, content rights, and student-data permissions.
 2. BL-003 and BL-006: validate representative real QP/MS data and segmentation.
 3. BL-004 and BL-005: complete bounded Gemini tagging and the mandatory manual review.
 4. BL-002: build and review the chapter mapping.

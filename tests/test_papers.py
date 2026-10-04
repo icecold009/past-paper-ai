@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 from starlette.requests import Request
 
+from api.auth import AuthContext
 from api.main import create_app, create_paper
 from api.papers import generate_weak_spot_paper
 from api.schemas import PaperGenerateRequest
@@ -113,7 +114,7 @@ class PaperGenerationTests(unittest.TestCase):
         print("SAMPLE_WEAK_SPOT_PAPER=" + json.dumps(paper.model_dump(), sort_keys=True, default=str))
 
     def test_generate_endpoint_returns_labeled_paper(self) -> None:
-        app = create_app(engine=self.engine)
+        app = create_app(engine=self.engine, auth_secret="test-secret")
         app.state.paper_model = _PaperGemini()
         app.state.paper_prompt_builder = lambda subject: f"Reviewed {subject} syllabus context."
         request = Request(
@@ -127,10 +128,12 @@ class PaperGenerationTests(unittest.TestCase):
             }
         )
 
+        auth = AuthContext(user_id=7, role="student", school_id=None, expires_at=4_000_000_000)
         with Session(self.engine) as session:
             result = create_paper(
                 PaperGenerateRequest(user_id=7, subject="9618", target_marks=8),
                 request,
+                auth,
                 session,
             )
 
