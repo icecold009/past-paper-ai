@@ -5,7 +5,7 @@
 - Project: Past Paper AI
 - Reviewed against repository: 2026-10-04
 - Backlog status: current incomplete work and decisions
-- Product north star: help Cambridge Grades 8–12 students at the target school identify weak subjects and chapters, understand why they need attention, and complete targeted activities that improve them
+- Product north star: help Cambridge students aged 14–18 worldwide who study IGCSE, AS Level, or A Level identify weak subjects and chapters, understand why they need attention, and follow targeted study plans based on time until their next exam. Initial subjects are `9618`, `9702`, `9231`, and `9709`.
 
 This backlog records work that is not complete. It is intentionally separate from the implementation plan: the implementation plan describes the phase sequence, while this document is the working list of unfinished tasks, blockers, acceptance criteria, and decisions.
 
@@ -48,6 +48,8 @@ Priority:
 - A v1 FastAPI service now exists. The legacy attempt, mastery, and paper-generation routes require the existing signed-request owner check; external identity-provider login, school roles, PostgreSQL RLS, and production deployment remain incomplete.
 - The product owner confirmed worldwide availability for students aged 14–18 studying Cambridge IGCSE, AS Level, or A Level, starting with subject codes `9618`, `9702`, `9231`, and `9709`. The intended product uses study notes, school exams, and other learning data to identify weak points and produce study plans based on time until the next exam. Worldwide availability is product scope; provider, source-rights, privacy, and cross-border eligibility still require validation before serving each market.
 - The AI provider and student-data processing arrangement remain undecided. No evidence of permission to store, display, adapt, or transmit Cambridge past-paper content, school exams, notes, or other third-party learning material has been supplied. School data permissions—including collection, teacher visibility, retention, and deletion—remain undecided. These are release gates.
+- The v1 API now defaults student-data AI egress to denied and provides owner-scoped JSON export plus confirmed deletion of the student's rows in the active application database. These technical controls do not decide consent/legal basis, retention duration, school/teacher access, backup or provider deletion, regional eligibility, or Cambridge content rights; those remain BL-206 gates. The existing test/local HMAC ownership check is not production student authentication.
+- The current v1 schema/API does not accept student notes or uploaded school-exam files. If either is added, it must have a documented purpose/permission basis and be covered by owner-scoped access, export, deletion, and provider-egress controls before intake is enabled.
 
 ## 4. P0 — trust and prerequisite blockers
 
@@ -58,10 +60,8 @@ Priority:
 - Dependency: school/subject-owner input
 - Owner: product owner + subject teachers
 
-Confirm:
+Product scope confirmed by the product owner: Cambridge IGCSE, AS Level, and A Level students aged 14–18 worldwide; first subjects are `9618`, `9702`, `9231`, and `9709`. For school deployments, confirm:
 
-- Cambridge stage(s) represented by Grades 8–12 at the school;
-- subjects to support first;
 - syllabus/exam-board variants and revision years;
 - exact school grade-to-stage mapping;
 - chapter list and chapter order for every first-release subject;
@@ -202,6 +202,17 @@ Acceptance criteria:
 - Dependency: school and policy-owner review
 
 Document permitted use, storage, access, retention, deletion, provider transmission, and sharing rules for CAIE PDFs, extracted content, mark schemes, student answers, diagnostic data, and teacher reports. Confirm the selected provider and its age/data terms before sending student data.
+
+Current interim controls: student-data AI calls are denied by default; authenticated API users can export their own app-held records and request confirmed deletion from the active application database. The export/deletion endpoints are not a substitute for production identity, retention/backup policy, school-system deletion, provider-side deletion, consent/notice, or content rights.
+
+Still requires a named decision owner and evidence for:
+
+- permitted school collection and use of student notes, practice exams, answers, marks, and derived weakness profiles;
+- student/teacher/school visibility and any safeguarding or parent/guardian access rules;
+- age-appropriate notice, consent or other approved basis, account recovery, and data-access requests for ages 14–18 in each served country;
+- retention periods, backup expiry, operational log minimization, and deletion service levels;
+- provider identity, age eligibility, processing region, training/use terms, subprocessors, incident support, and deletion terms before student-data transmission;
+- Cambridge/CAIE permission for storing, extracting, displaying, adapting, or distributing papers, questions, and mark schemes.
 
 ## 5. P1 — personalized learning foundation
 

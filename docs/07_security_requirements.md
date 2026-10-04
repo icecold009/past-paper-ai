@@ -4,13 +4,13 @@
 
 This document covers the future product and the security posture of the current repository.
 
-- Reviewed against repository: 2026-07-26
-- Current system: local batch scripts, CSV/JSON artifacts, optional local database
-- Current users: repository operator; no public user accounts
-- Product audience: school students in Grades 8–12, including minors, plus authorized teachers/reviewers
+- Reviewed against repository: 2026-10-04
+- Current system: local batch scripts plus a v1 FastAPI/React slice, CSV/JSON artifacts, and optional local database
+- Current users: test/local signed-token API principals; no customer login or production accounts
+- Product audience: worldwide Cambridge IGCSE, AS Level, and A Level students aged 14–18; school/teacher access is not yet defined
 - Current secrets: `GEMINI_API_KEY` and optional `DATABASE_URL` loaded from local `.env`
-- Current web/API surface: none
-- Current RLS/auth/rate limiting/CDN/load balancing/error tracking: none implemented
+- Current web/API surface: local v1 API and React slice; API auth is an HMAC test/local ownership boundary, not customer authentication
+- Current RLS/auth/rate limiting/CDN/load balancing/error tracking: no production IDP, school-role enforcement, RLS, rate limiting, CDN, load balancing, or error tracking
 
 Security requirements below are phrased as controls to implement and verify. A planned control is not evidence that the control exists.
 
@@ -51,7 +51,7 @@ future API ──restricted──► database
 CI/deploy ──privileged──► production infrastructure
 ```
 
-The most important current boundary is between extracted exam text and Gemini instructions. Source content must be treated as data, not as trusted instructions.
+The most important batch boundary is between extracted exam text and Gemini instructions. Source content must be treated as data, not as trusted instructions. Student-answer grading, generated-question fallback, and optional recommendation selection also cross an external-provider boundary; the current API defaults those student-data calls to denied.
 
 ## 3. Security principles
 
@@ -89,7 +89,8 @@ The most important current boundary is between extracted exam text and Gemini in
 
 ### Status
 
-No frontend exists yet. These are release requirements for the future web application.
+The React v1 slice exists, but it has no customer authentication or privacy export/deletion interface. The API privacy
+routes are not exposed through a student-facing account flow. These remain requirements before a public student launch.
 
 ## 5. APIs and backend logic
 
@@ -108,7 +109,7 @@ No frontend exists yet. These are release requirements for the future web applic
 
 ### Status
 
-No API is implemented. SQLAlchemy ingestion is local batch logic, not a public authorization boundary.
+The v1 API validates requests, uses parameterized ORM queries, and applies an HMAC-verified self-ownership boundary for local/test use. Student-answer grading and other student-data AI egress are denied by default. The API still lacks production authentication, school roles, rate limits, complete request-size/time bounds, and verified production logging/audit controls.
 
 ## 6. Database and storage
 
@@ -128,6 +129,8 @@ No API is implemented. SQLAlchemy ingestion is local batch logic, not a public a
 ### Current schema considerations
 
 The implemented schema has foreign keys, uniqueness constraints, cascading relationships, and a JSONB `points_awarded` field. It does not yet contain RLS policies, audit history, source-version snapshots, or production backup configuration.
+
+The API offers owner-scoped JSON export and confirmed deletion of profile and user-owned rows in the active application database. Deletion preserves shared question/curriculum records and does not erase backups, logs, provider-side copies, student downloads, or school systems. Retention duration, backup expiry, export/deletion service levels, and school-system handling remain undecided.
 
 ## 7. Authentication and permissions
 
@@ -151,11 +154,11 @@ Roles must be explicit and server-derived. Never trust a role supplied by the br
 - Revoke sessions after security-sensitive events.
 - Test direct object reference attacks on every user-owned resource.
 - Test that a teacher sees only their authorized class aggregate and that a student cannot access teacher or class data.
-- Define age-appropriate account recovery, consent/notice, and data-access processes with the school and applicable policy owners before launch.
+- Define age-appropriate account recovery, consent/notice, and data-access processes with the school and applicable policy owners before launch. The intended users are 14–18, so the decision must cover the applicable age and country requirements before serving a market.
 
 ### Status
 
-`users` exists as database scaffolding only. No authentication or permissions are implemented.
+`users` and local/test HMAC token ownership checks exist, but there is no customer login, session revocation, school-role authorization, guardian/consent workflow, or PostgreSQL RLS. Do not use the current API as a production student service.
 
 ## 8. Hosting and deployment
 
@@ -225,7 +228,8 @@ Content tables may be public/read-only only after copyright and review status ar
 
 ### Status
 
-No RLS policies exist because no authenticated service exists yet. This is a mandatory gate before multi-user production use.
+No RLS policies exist. User data tables and local API-level ownership checks exist, but the HMAC boundary is not customer
+authentication or database tenant isolation. RLS remains a mandatory gate before multi-user production use.
 
 ## 12. Rate limiting and abuse prevention
 
