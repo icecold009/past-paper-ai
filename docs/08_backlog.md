@@ -46,7 +46,8 @@ Priority:
 - The authenticated diagnostic/practice answer-save endpoints now reject payload identities that do not match the verified resource owner; this is local ownership hardening, not identity-provider or PostgreSQL RLS completion.
 - An optional TypeSafe-backed recommendation selector now exists behind a provider-neutral boundary. It is off by default, preserves deterministic evidence policy, validates candidate IDs and confidence, records provenance, and falls back safely; live provider contract and performance validation remain open.
 - A v1 FastAPI service now exists. The legacy attempt, mastery, and paper-generation routes require the existing signed-request owner check; external identity-provider login, school roles, PostgreSQL RLS, and production deployment remain incomplete.
-- The product owner confirmed a high-school audience, but exact ages/stages/countries remain unspecified. The AI provider is undecided; the intended content is Cambridge past papers without evidence of publication/transmission rights; school data permissions remain undecided. These are release gates.
+- The product owner confirmed worldwide availability for students aged 14–18 studying Cambridge IGCSE, AS Level, or A Level, starting with subject codes `9618`, `9702`, `9231`, and `9709`. The intended product uses study notes, school exams, and other learning data to identify weak points and produce study plans based on time until the next exam. Worldwide availability is product scope; provider, source-rights, privacy, and cross-border eligibility still require validation before serving each market.
+- The AI provider and student-data processing arrangement remain undecided. No evidence of permission to store, display, adapt, or transmit Cambridge past-paper content, school exams, notes, or other third-party learning material has been supplied. School data permissions—including collection, teacher visibility, retention, and deletion—remain undecided. These are release gates.
 
 ## 4. P0 — trust and prerequisite blockers
 
@@ -461,9 +462,11 @@ These decisions should be answered before the corresponding implementation tasks
 
 ### Responses recorded on 2026-10-04
 
-- Intended audience: high-school students. Exact ages, grades/stages, and countries are not specified; treat the audience as potentially including minors.
+- Intended audience and availability: students ages 14–18 studying Cambridge IGCSE, AS Level, or A Level; the product is intended to be available worldwide. Market-specific provider, privacy, and data-transfer eligibility is still unverified.
+- Initial subjects: `9618` Computer Science, `9702` Physics, `9231` Further Mathematics, and `9709` Mathematics. The current paper-level configuration is maintained in `config/subject_plan.json`.
+- Product intent: use study notes, school exams, and other learning data to find weak points and create study plans based on time until the next exam. Exact data fields, permission/consent, retention, teacher visibility, and deletion policy remain undecided.
 - AI provider: undecided. No provider/data-processing arrangement is approved for student data.
-- Content: Cambridge past papers. No evidence of permission to store, show, adapt, or transmit this content was supplied; rights remain uncleared.
+- Content: Cambridge past papers, school exams, notes, and other learning material are intended inputs. No evidence of permission to store, display, adapt, or transmit these materials was supplied; source rights remain unverified.
 - School data permissions: undecided, including teacher visibility, retention, and deletion.
 
 ## 8. Recommended execution order
