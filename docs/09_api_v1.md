@@ -47,11 +47,11 @@ The default development server listens on `http://127.0.0.1:8000`.
   without silently fabricating marks. Practice-answer payload identity is checked against both the authenticated owner
   and the practice-session owner.
 
-The legacy `/attempts`, `/mastery/{user_id}`, and `/papers/generate` endpoints still accept a direct `user_id` for
-backward-compatible local development. The new personalized state-changing endpoints require an HMAC-verified Bearer
-token and enforce user/school ownership. `AUTH_SECRET` is only a local cryptographic boundary until a school-approved
-identity provider and PostgreSQL RLS policies are integrated; do not treat the current development mode as production
-authentication.
+Personal endpoints, including `/attempts`, `/mastery/{user_id}`, `/papers/generate`, guidance, diagnostics,
+recommendation dismissal, and practice sessions, require an HMAC-verified Bearer token and enforce self-ownership
+against an active user record. User IDs in paths and request payloads must match the token subject. `AUTH_SECRET` and
+the token helper are a local/test boundary, not customer authentication: there is no login flow, token revocation,
+school-role authorization, or PostgreSQL RLS. Do not treat this API as production-ready authentication.
 
 The paper endpoint uses the first configured paper in `SUBJECT_PAPER_MARKS` when `paper` is omitted. Its response may
 contain fewer marks than the target when no suitable unseen real questions remain and Gemini fallback is unavailable.
