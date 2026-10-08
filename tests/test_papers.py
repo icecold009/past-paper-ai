@@ -18,6 +18,7 @@ from src.db.models import Attempt, Base, MarkSchemePoint, Mastery, PaperQuestion
 
 class _PaperGemini:
     def __init__(self) -> None:
+        self.calls = 0
         self.responses = iter(
             [
                 '{"question_text":"Explain how a sorting algorithm can improve efficiency.","marks":2,"mark_scheme_points":["Identifies reduced comparisons","Links this to efficiency"]}',
@@ -27,6 +28,7 @@ class _PaperGemini:
         )
 
     def generate_content(self, prompt: str) -> SimpleNamespace:
+        self.calls += 1
         return SimpleNamespace(text=next(self.responses))
 
 
@@ -99,6 +101,7 @@ class PaperGenerationTests(unittest.TestCase):
                 PaperGenerateRequest(user_id=7, subject="9618", target_marks=8, min_real_questions_per_cell=2),
                 model=_PaperGemini(),
                 prompt_builder=lambda subject: f"Reviewed {subject} syllabus context.",
+                allow_ai_generation=True,
             )
 
         source_types = [question.source_type for question in paper.questions]
@@ -115,6 +118,7 @@ class PaperGenerationTests(unittest.TestCase):
 
     def test_generate_endpoint_returns_labeled_paper(self) -> None:
         app = create_app(engine=self.engine, auth_secret="test-secret")
+        app.state.student_data_ai_approved = True
         app.state.paper_model = _PaperGemini()
         app.state.paper_prompt_builder = lambda subject: f"Reviewed {subject} syllabus context."
         request = Request(
@@ -140,6 +144,33 @@ class PaperGenerationTests(unittest.TestCase):
         self.assertEqual(result.mode, "weak_spot")
         self.assertIn("ai_generated", {question.source_type for question in result.questions})
         self.assertIn("real", {question.source_type for question in result.questions})
+
+    def test_endpoint_keeps_real_questions_and_skips_ai_without_approval(self) -> None:
+        app = create_app(engine=self.engine, auth_secret="test-secret")
+        model = _PaperGemini()
+        app.state.paper_model = model
+        request = Request(
+            {
+                "type": "http",
+                "method": "POST",
+                "path": "/papers/generate",
+                "headers": [],
+                "query_string": b"",
+                "app": app,
+            }
+        )
+        auth = AuthContext(user_id=7, role="student", school_id=None, expires_at=4_000_000_000)
+        with Session(self.engine) as session:
+            result = create_paper(
+                PaperGenerateRequest(user_id=7, subject="9618", target_marks=8),
+                request,
+                auth,
+                session,
+            )
+
+        self.assertTrue(result.questions)
+        self.assertEqual({question.source_type for question in result.questions}, {"real"})
+        self.assertEqual(model.calls, 0)
 
 
 if __name__ == "__main__":

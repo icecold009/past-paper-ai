@@ -6,7 +6,9 @@ from typing import Callable, Iterator
 from uuid import uuid4
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
-from sqlalchemy import func, select
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import JSONResponse, Response
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
@@ -14,6 +16,12 @@ from src.build_prompt import build_prompt
 from api.grading import GeminiGrade, grade_answer
 from api.auth import AuthContext, get_auth_context
 from api.papers import generate_weak_spot_paper
+from api.privacy import (
+    delete_student_data,
+    export_student_data,
+    generated_question_owner_ids,
+    is_generated_question,
+)
 from api.personalization import build_guidance, dismiss_recommendation, approved_chapters
 from api.recommendation_selection import RecommendationSelector
 from api.schemas import (
@@ -33,6 +41,7 @@ from api.schemas import (
     PracticeAnswerResponse,
     PracticeSessionCreate,
     PracticeSessionResponse,
+    PrivacyDeletionRequest,
     QuestionResponse,
     RecommendationDismissRequest,
     RecommendationResponse,
@@ -45,6 +54,7 @@ from src.db.models import (
     DiagnosticResponse,
     Mastery,
     Paper,
+    PaperQuestion,
     PracticeAnswer,
     PracticeSession,
     Question,
@@ -103,6 +113,7 @@ def _guidance_chapter(state: object) -> GuidanceChapter:
         name=state.chapter.name,
         grade_stage=state.chapter.grade_stage,
         syllabus_revision=state.chapter.syllabus_revision,
+        map_version=state.chapter.map_version,
         evidence_count=state.evidence_count,
         score=state.score,
         confidence=state.confidence,
@@ -152,6 +163,25 @@ def _require_user_access(session: Session, context: AuthContext, user_id: int) -
     if user.school_id != context.school_id:
         raise HTTPException(status_code=403, detail="The authenticated school scope does not match the user")
     return user
+
+
+def _require_privacy_owner(session: Session, context: AuthContext, user_id: int) -> User:
+    """Allow an authenticated owner to export or erase data even if the profile is inactive."""
+    if context.user_id != user_id:
+        raise HTTPException(status_code=403, detail="You may only access your own student data")
+    user = session.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail=f"User {user_id} was not found")
+    if user.school_id != context.school_id:
+        raise HTTPException(status_code=403, detail="The authenticated school scope does not match the user")
+    return user
+
+
+def _require_generated_question_owner(session: Session, question: Question, user_id: int) -> None:
+    if not is_generated_question(session, question):
+        return
+    if generated_question_owner_ids(session, question.id) != {user_id}:
+        raise HTTPException(status_code=404, detail="Question was not found")
 
 
 def _practice_response(session: Session, practice: PracticeSession) -> PracticeSessionResponse:
@@ -267,6 +297,9 @@ def create_app(
     app.state.paper_model = None
     app.state.paper_prompt_builder = None
     app.state.guidance_selector = guidance_selector
+    # There is no approved provider for the intended 14-18 audience yet.
+    # Keep student-data egress disabled until a provider and school policy are approved.
+    app.state.student_data_ai_approved = False
     return app
 
 
@@ -314,7 +347,21 @@ def list_questions(
     effective_topic = topic.strip() if isinstance(topic, str) else None
     effective_command_word = command_word.strip() if isinstance(command_word, str) else None
     effective_limit = limit if isinstance(limit, int) else 50
-    query = select(Question).join(Subject).order_by(Subject.code, Question.id).limit(effective_limit)
+    generated_link = (
+        select(PaperQuestion.question_id)
+        .where(
+            PaperQuestion.question_id == Question.id,
+            PaperQuestion.source_type == "ai_generated",
+        )
+        .exists()
+    )
+    query = (
+        select(Question)
+        .join(Subject)
+        .where(Question.paper != "ai_generated", ~generated_link)
+        .order_by(Subject.code, Question.id)
+        .limit(effective_limit)
+    )
     if effective_subject:
         query = query.where(Subject.code == effective_subject)
     if effective_topic:
@@ -341,10 +388,16 @@ def create_attempt(
     session: Session = Depends(_session_for_request),
 ) -> GradingResult:
     user = _require_user_access(session, auth, payload.user_id)
+    if not getattr(request.app.state, "student_data_ai_approved", False):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Student-answer AI grading is unavailable until an age-eligible provider and school data policy are approved",
+        )
 
     question = session.scalar(select(Question).where(Question.id == payload.question_id))
     if question is None:
         raise HTTPException(status_code=404, detail=f"Question {payload.question_id} was not found")
+    _require_generated_question_owner(session, question, user.id)
     if not question.mark_scheme_points:
         raise HTTPException(
             status_code=422,
@@ -420,12 +473,44 @@ def get_mastery(
     if db_subject is None:
         raise HTTPException(status_code=404, detail=f"Subject {subject} was not found")
 
+    generated_link = (
+        select(PaperQuestion.question_id)
+        .where(
+            PaperQuestion.question_id == Question.id,
+            PaperQuestion.source_type == "ai_generated",
+        )
+        .exists()
+    )
+    owned_generated_link = (
+        select(PaperQuestion.question_id)
+        .join(Paper, Paper.id == PaperQuestion.paper_id)
+        .where(
+            PaperQuestion.question_id == Question.id,
+            PaperQuestion.source_type == "ai_generated",
+            Paper.user_id == user.id,
+        )
+        .exists()
+    )
+    other_generated_owner = (
+        select(PaperQuestion.question_id)
+        .join(Paper, Paper.id == PaperQuestion.paper_id)
+        .where(
+            PaperQuestion.question_id == Question.id,
+            PaperQuestion.source_type == "ai_generated",
+            Paper.user_id != user.id,
+        )
+        .exists()
+    )
     dimensions = session.execute(
         select(Question.topic, Question.subtopic, Question.command_word)
         .where(
             Question.subject_id == db_subject.id,
             Question.topic.is_not(None),
             Question.command_word.is_not(None),
+            or_(
+                and_(Question.paper != "ai_generated", ~generated_link),
+                and_(owned_generated_link, ~other_generated_owner),
+            ),
         )
         .distinct()
     ).all()
@@ -473,6 +558,8 @@ def list_curriculum(
 
 
 def _guidance_selector(request: Request) -> RecommendationSelector | None:
+    if not getattr(request.app.state, "student_data_ai_approved", False):
+        return None
     return getattr(request.app.state, "guidance_selector", None)
 
 
@@ -533,14 +620,19 @@ def dismiss_recommendation_endpoint(
     return _recommendation_response(recommendation)
 
 
-def _diagnostic_response(diagnostic: Diagnostic) -> DiagnosticStartResponse:
+def _diagnostic_response(session: Session, diagnostic: Diagnostic) -> DiagnosticStartResponse:
     return DiagnosticStartResponse(
         id=diagnostic.id,
         user_id=diagnostic.user_id,
         subject=_subject_response(diagnostic.subject),
         grade_stage=diagnostic.grade_stage,
         state=diagnostic.state,
-        questions=[_question_response(response.question) for response in diagnostic.responses],
+        questions=[
+            _question_response(response.question)
+            for response in diagnostic.responses
+            if not is_generated_question(session, response.question)
+            or generated_question_owner_ids(session, response.question.id) == {diagnostic.user_id}
+        ],
     )
 
 
@@ -562,7 +654,7 @@ def start_diagnostic(
             )
         )
         if existing is not None:
-            return _diagnostic_response(existing)
+            return _diagnostic_response(session, existing)
 
     query = (
         select(Question)
@@ -570,8 +662,15 @@ def start_diagnostic(
         .join(CurriculumChapter, CurriculumChapter.id == QuestionChapterMapping.chapter_id)
         .where(
             Question.subject_id == db_subject.id,
+            Question.paper != "ai_generated",
             QuestionChapterMapping.review_status == "approved",
             CurriculumChapter.review_status == "approved",
+            ~select(PaperQuestion.question_id)
+            .where(
+                PaperQuestion.question_id == Question.id,
+                PaperQuestion.source_type == "ai_generated",
+            )
+            .exists(),
         )
         .distinct()
         .order_by(Question.id)
@@ -594,7 +693,7 @@ def start_diagnostic(
     session.flush()
     diagnostic.responses = [DiagnosticResponse(question_id=question.id) for question in questions]
     session.commit()
-    return _diagnostic_response(diagnostic)
+    return _diagnostic_response(session, diagnostic)
 
 
 @app.put("/diagnostics/{diagnostic_id}/responses/{question_id}", response_model=DiagnosticResponseResult)
@@ -621,6 +720,7 @@ def save_diagnostic_response(
     )
     if response is None:
         raise HTTPException(status_code=404, detail="Question is not part of this diagnostic")
+    _require_generated_question_owner(session, response.question, user.id)
     response.answer_text = payload.answer_text
     response.answered_at = datetime.now(timezone.utc)
     session.commit()
@@ -649,7 +749,7 @@ def submit_diagnostic(
         diagnostic.state = "submitted"
         diagnostic.submitted_at = datetime.now(timezone.utc)
         session.commit()
-    return _diagnostic_response(diagnostic)
+    return _diagnostic_response(session, diagnostic)
 
 
 @app.post("/practice/sessions", response_model=PracticeSessionResponse, status_code=status.HTTP_201_CREATED)
@@ -683,6 +783,12 @@ def create_practice_session(
     )
     question_by_id = {question.id: question for question in questions}
     missing = [question_id for question_id in question_ids if question_id not in question_by_id]
+    missing.extend(
+        question_id
+        for question_id, question in question_by_id.items()
+        if is_generated_question(session, question)
+        and generated_question_owner_ids(session, question_id) != {user.id}
+    )
     if missing:
         raise HTTPException(status_code=422, detail=f"Questions are unavailable for this subject: {missing}")
 
@@ -787,5 +893,44 @@ def create_paper(
         payload,
         model=request.app.state.paper_model,
         prompt_builder=prompt_builder or build_prompt,
+        allow_ai_generation=(
+            getattr(request.app.state, "student_data_ai_approved", False)
+            and request.app.state.paper_model is not None
+        ),
+    )
+
+
+@app.get("/privacy/export")
+def export_own_student_data(
+    auth: AuthContext = Depends(get_auth_context),
+    session: Session = Depends(_session_for_request),
+) -> JSONResponse:
+    user = _require_privacy_owner(session, auth, auth.user_id)
+    response = JSONResponse(
+        content=jsonable_encoder(export_student_data(session, user)),
+        headers={
+            "Cache-Control": "private, no-store",
+            "Pragma": "no-cache",
+            "Content-Disposition": 'attachment; filename="student-data-export.json"',
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+    return response
+
+
+@app.delete("/privacy/account", status_code=status.HTTP_204_NO_CONTENT)
+def delete_own_student_data(
+    payload: PrivacyDeletionRequest,
+    auth: AuthContext = Depends(get_auth_context),
+    session: Session = Depends(_session_for_request),
+) -> Response:
+    user = session.get(User, auth.user_id)
+    if user is not None:
+        _require_privacy_owner(session, auth, user.id)
+        delete_student_data(session, user.id)
+        session.commit()
+    return Response(
+        status_code=status.HTTP_204_NO_CONTENT,
+        headers={"Cache-Control": "private, no-store", "Pragma": "no-cache"},
     )
 

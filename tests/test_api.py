@@ -8,7 +8,7 @@ from unittest.mock import patch
 from urllib.parse import urlsplit
 
 from fastapi import HTTPException
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, func, select
 from sqlalchemy.pool import StaticPool
 from sqlalchemy.orm import Session
 from starlette.requests import Request
@@ -21,10 +21,18 @@ from src.db.models import (
     Attempt,
     Base,
     CurriculumChapter,
+    Diagnostic,
+    DiagnosticEvidence,
+    DiagnosticResponse,
     MarkSchemePoint,
     Mastery,
+    Paper,
+    PaperQuestion,
+    PracticeAnswer,
+    PracticeSession,
     Question,
     QuestionChapterMapping,
+    Recommendation,
     Subject,
     User,
 )
@@ -69,6 +77,7 @@ def _request(
         request_headers.setdefault("content-type", "application/json")
         request_headers.setdefault("content-length", str(len(body)))
     response_status: int | None = None
+    response_headers: dict[str, str] = {}
     response_body = bytearray()
     body_sent = False
 
@@ -83,6 +92,12 @@ def _request(
         nonlocal response_status
         if message["type"] == "http.response.start":
             response_status = int(message["status"])
+            response_headers.update(
+                {
+                    key.decode("latin-1").lower(): value.decode("latin-1")
+                    for key, value in message.get("headers", [])
+                }
+            )
         elif message["type"] == "http.response.body":
             response_body.extend(message.get("body", b""))
 
@@ -104,6 +119,7 @@ def _request(
     asyncio.run(app(scope, receive, send))
     return SimpleNamespace(
         status_code=response_status,
+        headers=response_headers,
         json=lambda: json.loads(response_body.decode("utf-8")),
     )
 
@@ -121,6 +137,7 @@ class ApiTests(unittest.TestCase):
             session.add(subject)
             session.flush()
             session.add(User(id=7, email="student@example.test"))
+            session.add(User(id=8, email="other-student@example.test"))
             question = Question(
                 id=11,
                 subject_id=subject.id,
@@ -171,6 +188,8 @@ class ApiTests(unittest.TestCase):
         self.grader = _FakeGrader()
         self.app = create_app(engine=self.engine, grader=self.grader, auth_secret="test-secret")
         self.app.router.routes = list(api_app.router.routes)
+        # This test fixture uses a local fake grader; the shipped app remains default-off.
+        self.app.state.student_data_ai_approved = True
         self.auth = AuthContext(
             user_id=7,
             role="student",
@@ -194,6 +213,141 @@ class ApiTests(unittest.TestCase):
     def _headers_for(self, user_id: int) -> dict[str, str]:
         token = issue_token(user_id=user_id, secret="test-secret")
         return {"Authorization": f"Bearer {token}"}
+
+    def _seed_private_records(self, user_id: int) -> None:
+        with Session(self.engine) as session:
+            subject = session.scalar(select(Subject).where(Subject.code == "9618"))
+            chapter = session.scalar(select(CurriculumChapter))
+            question = session.get(Question, 11)
+            assert subject is not None and chapter is not None and question is not None
+
+            attempt = Attempt(
+                user_id=user_id,
+                question_id=question.id,
+                submitted_answer_text=f"private answer for {user_id}",
+                points_awarded={"feedback": f"private feedback for {user_id}"},
+                marks_earned=1,
+                marks_possible=2,
+            )
+            paper = Paper(user_id=user_id, subject_id=subject.id, mode="weak_spot")
+            diagnostic = Diagnostic(
+                user_id=user_id,
+                subject_id=subject.id,
+                grade_stage="AS",
+                state="submitted",
+                idempotency_key=f"diagnostic-{user_id}",
+            )
+            recommendation = Recommendation(
+                user_id=user_id,
+                chapter_id=chapter.id,
+                state="needs_practice",
+                reason=f"private reason for {user_id}",
+                evidence_count=2,
+                confidence=0.8,
+                activity_type="targeted_practice",
+                rule_version="test-v1",
+                curriculum_version="approved-v1",
+            )
+            practice = PracticeSession(
+                user_id=user_id,
+                subject_id=subject.id,
+                state="submitted",
+                idempotency_key=f"practice-{user_id}",
+            )
+            session.add_all([attempt, paper, diagnostic, recommendation, practice])
+            session.flush()
+            session.add_all(
+                [
+                    PaperQuestion(
+                        paper_id=paper.id,
+                        question_id=question.id,
+                        position=1,
+                        source_type="real",
+                    ),
+                    DiagnosticResponse(
+                        diagnostic_id=diagnostic.id,
+                        question_id=question.id,
+                        answer_text=f"diagnostic answer for {user_id}",
+                    ),
+                    DiagnosticEvidence(
+                        user_id=user_id,
+                        chapter_id=chapter.id,
+                        attempt_id=attempt.id,
+                        source_type="attempt",
+                        evidence_count=1,
+                        score=0.5,
+                        confidence=0.5,
+                        state="developing",
+                    ),
+                    PracticeAnswer(
+                        session_id=practice.id,
+                        question_id=question.id,
+                        answer_text=f"practice answer for {user_id}",
+                        status="submitted",
+                        attempt_id=attempt.id,
+                    ),
+                ]
+            )
+            session.add(
+                Mastery(
+                    user_id=user_id,
+                    topic="Data representation",
+                    subtopic=f"Private {user_id}",
+                    command_word="Explain",
+                    score=0.5,
+                )
+            )
+            session.commit()
+
+    def _seed_generated_question(
+        self,
+        *,
+        user_id: int,
+        question_id: int,
+        raw_text: str,
+        linked: bool = True,
+    ) -> None:
+        with Session(self.engine) as session:
+            subject = session.scalar(select(Subject).where(Subject.code == "9618"))
+            assert subject is not None
+            paper = Paper(user_id=user_id, subject_id=subject.id, mode="weak_spot")
+            session.add(paper)
+            session.flush()
+            question = Question(
+                id=question_id,
+                subject_id=subject.id,
+                paper="ai_generated",
+                year=2026,
+                session="AI generated",
+                variant=str(user_id),
+                question_number=f"AI-{question_id}",
+                sub_label="",
+                topic="Data representation",
+                subtopic="Cache",
+                command_word="Explain",
+                difficulty="easy",
+                marks=2,
+                raw_text=raw_text,
+            )
+            session.add(question)
+            session.flush()
+            session.add(
+                MarkSchemePoint(
+                    question_id=question.id,
+                    point_text=f"Private mark point for {user_id}",
+                    marks_value=1,
+                )
+            )
+            if linked:
+                session.add(
+                    PaperQuestion(
+                        paper_id=paper.id,
+                        question_id=question.id,
+                        position=1,
+                        source_type="ai_generated",
+                    )
+                )
+            session.commit()
 
     def test_legacy_personal_routes_reject_anonymous_requests(self) -> None:
         with patch("api.main.generate_weak_spot_paper") as generate:
@@ -284,6 +438,457 @@ class ApiTests(unittest.TestCase):
         generate.assert_called_once()
         self.assertEqual(generate.call_args.args[1].user_id, 7)
         self.assertEqual(len(self.grader.calls), 1)
+
+    def test_student_answer_grading_is_default_denied_before_provider_call(self) -> None:
+        app = create_app(engine=self.engine, grader=self.grader, auth_secret="test-secret")
+        app.router.routes = list(api_app.router.routes)
+        response = _request(
+            app,
+            "POST",
+            "/attempts",
+            headers=self._headers_for(7),
+            json_body={"user_id": 7, "question_id": 11, "submitted_answer_text": "private answer"},
+        )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(self.grader.calls, [])
+        with Session(self.engine) as session:
+            self.assertEqual(session.scalar(select(func.count()).select_from(Attempt)), 0)
+
+    def test_unapproved_guidance_provider_never_receives_derived_student_state(self) -> None:
+        class _CountingSelector:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def choose(self, context: object) -> object:
+                self.calls += 1
+                raise AssertionError("unapproved selector must not be called")
+
+        selector = _CountingSelector()
+        app = create_app(engine=self.engine, auth_secret="test-secret", guidance_selector=selector)
+        app.router.routes = list(api_app.router.routes)
+        response = _request(
+            app,
+            "GET",
+            "/guidance/7?subject=9618",
+            headers=self._headers_for(7),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(selector.calls, 0)
+
+    def test_privacy_export_is_owner_scoped_complete_and_non_cacheable(self) -> None:
+        self._seed_private_records(7)
+        self._seed_private_records(8)
+        with Session(self.engine) as session:
+            inactive_owner = session.get(User, 7)
+            assert inactive_owner is not None
+            inactive_owner.is_active = False
+            session.commit()
+
+        response = _request(
+            self.app,
+            "GET",
+            "/privacy/export",
+            headers=self._headers_for(7),
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers["cache-control"], "private, no-store")
+        self.assertEqual(response.headers["pragma"], "no-cache")
+        self.assertIn("attachment", response.headers["content-disposition"])
+        exported = response.json()
+        self.assertEqual(exported["profile"]["id"], 7)
+        self.assertEqual(
+            set(exported["records"]),
+            {
+                "attempts", "mastery", "papers", "paper_questions", "diagnostic_evidence",
+                "recommendations", "diagnostics", "diagnostic_responses", "practice_sessions",
+                "practice_answers",
+            },
+        )
+        self.assertEqual(exported["records"]["attempts"][0]["submitted_answer_text"], "private answer for 7")
+        self.assertEqual(exported["records"]["diagnostic_responses"][0]["answer_text"], "diagnostic answer for 7")
+        self.assertNotIn("raw_text", json.dumps(exported))
+        self.assertNotIn("private answer for 8", json.dumps(exported))
+
+        other = _request(
+            self.app,
+            "GET",
+            "/privacy/export",
+            headers=self._headers_for(8),
+        ).json()
+        self.assertEqual(other["profile"]["id"], 8)
+        self.assertEqual(other["records"]["attempts"][0]["submitted_answer_text"], "private answer for 8")
+        self.assertNotIn("private answer for 7", json.dumps(other))
+
+    def test_privacy_deletion_requires_confirmation_and_erases_only_owner_rows(self) -> None:
+        self._seed_private_records(7)
+        self._seed_private_records(8)
+        with Session(self.engine) as session:
+            inactive_owner = session.get(User, 7)
+            assert inactive_owner is not None
+            inactive_owner.is_active = False
+            session.commit()
+        headers = self._headers_for(7)
+
+        rejected = _request(
+            self.app,
+            "DELETE",
+            "/privacy/account",
+            headers=headers,
+            json_body={"confirmation": "DELETE"},
+        )
+        self.assertEqual(rejected.status_code, 422)
+        with Session(self.engine) as session:
+            self.assertIsNotNone(session.get(User, 7))
+
+        deleted = _request(
+            self.app,
+            "DELETE",
+            "/privacy/account",
+            headers=headers,
+            json_body={"confirmation": "DELETE MY DATA"},
+        )
+        repeated = _request(
+            self.app,
+            "DELETE",
+            "/privacy/account",
+            headers=headers,
+            json_body={"confirmation": "DELETE MY DATA"},
+        )
+        self.assertEqual(deleted.status_code, 204)
+        self.assertEqual(repeated.status_code, 204)
+
+        with Session(self.engine) as session:
+            self.assertIsNone(session.get(User, 7))
+            self.assertIsNotNone(session.get(User, 8))
+            for model in (Attempt, Mastery, Paper, Diagnostic, DiagnosticEvidence, Recommendation, PracticeSession):
+                self.assertEqual(
+                    session.scalar(select(func.count()).select_from(model).where(model.user_id == 7)),
+                    0,
+                    model.__name__,
+                )
+            diagnostic_ids = select(Diagnostic.id).where(Diagnostic.user_id == 7)
+            practice_session_ids = select(PracticeSession.id).where(PracticeSession.user_id == 7)
+            user_paper_ids = select(Paper.id).where(Paper.user_id == 7)
+            self.assertEqual(
+                session.scalar(
+                    select(func.count()).select_from(DiagnosticResponse).where(
+                        DiagnosticResponse.diagnostic_id.in_(diagnostic_ids)
+                    )
+                ),
+                0,
+            )
+            self.assertEqual(
+                session.scalar(
+                    select(func.count()).select_from(PracticeAnswer).where(
+                        PracticeAnswer.session_id.in_(practice_session_ids)
+                    )
+                ),
+                0,
+            )
+            self.assertEqual(
+                session.scalar(
+                    select(func.count()).select_from(PaperQuestion).where(
+                        PaperQuestion.paper_id.in_(user_paper_ids)
+                    )
+                ),
+                0,
+            )
+            self.assertEqual(session.scalar(select(func.count()).select_from(Attempt).where(Attempt.user_id == 8)), 1)
+            self.assertEqual(session.scalar(select(func.count()).select_from(PaperQuestion)), 1)
+            self.assertIsNotNone(session.get(Question, 11))
+            self.assertIsNotNone(session.scalar(select(MarkSchemePoint).where(MarkSchemePoint.question_id == 11)))
+
+    def test_generated_questions_are_hidden_and_owner_scoped_for_attempts_and_sessions(self) -> None:
+        self._seed_generated_question(
+            user_id=7,
+            question_id=12,
+            raw_text="Private question for student 7",
+        )
+        self._seed_generated_question(
+            user_id=7,
+            question_id=13,
+            raw_text="Orphaned private question",
+            linked=False,
+        )
+        self._seed_generated_question(
+            user_id=7,
+            question_id=15,
+            raw_text="Ambiguously owned generated question",
+        )
+        with Session(self.engine) as session:
+            private_question = session.get(Question, 12)
+            assert private_question is not None
+            private_question.topic = "Private generated dimension"
+            private_question.subtopic = "Student 7 only"
+            private_question.command_word = "Classify"
+            chapter = session.scalar(select(CurriculumChapter))
+            subject = session.scalar(select(Subject).where(Subject.code == "9618"))
+            assert chapter is not None and subject is not None
+            session.add(
+                QuestionChapterMapping(
+                    question_id=12,
+                    chapter_id=chapter.id,
+                    confidence=1.0,
+                    review_status="approved",
+                )
+            )
+            other_paper = Paper(user_id=8, subject_id=subject.id, mode="weak_spot")
+            session.add(other_paper)
+            session.flush()
+            session.add(
+                PaperQuestion(
+                    paper_id=other_paper.id,
+                    question_id=15,
+                    position=1,
+                    source_type="ai_generated",
+                )
+            )
+            legacy_diagnostic = Diagnostic(
+                user_id=8,
+                subject_id=subject.id,
+                grade_stage="AS",
+                state="active",
+                idempotency_key="legacy-private-question",
+            )
+            session.add(legacy_diagnostic)
+            session.flush()
+            legacy_diagnostic_id = legacy_diagnostic.id
+            session.add(DiagnosticResponse(diagnostic_id=legacy_diagnostic.id, question_id=12))
+            session.commit()
+
+        other_mastery = _request(
+            self.app,
+            "GET",
+            "/mastery/8?subject=9618",
+            headers=self._headers_for(8),
+        )
+        owner_mastery = _request(
+            self.app,
+            "GET",
+            "/mastery/7?subject=9618",
+            headers=self._headers_for(7),
+        )
+        self.assertNotIn(
+            "Private generated dimension",
+            json.dumps(other_mastery.json()["cells"]),
+        )
+        self.assertIn(
+            "Private generated dimension",
+            json.dumps(owner_mastery.json()["cells"]),
+        )
+
+        with Session(self.engine) as session:
+            questions = list_questions(subject="9618", limit=10, session=session)
+        self.assertEqual([question.id for question in questions], [11])
+
+        diagnostic = _request(
+            self.app,
+            "POST",
+            "/diagnostics",
+            headers=self._headers_for(7),
+            json_body={"user_id": 7, "subject": "9618", "grade_stage": "AS", "question_limit": 10},
+        )
+        self.assertEqual(diagnostic.status_code, 201)
+        self.assertEqual([question["id"] for question in diagnostic.json()["questions"]], [11])
+        legacy_diagnostic = _request(
+            self.app,
+            "POST",
+            f"/diagnostics/{legacy_diagnostic_id}/submit?user_id=8",
+            headers=self._headers_for(8),
+        )
+        self.assertEqual(legacy_diagnostic.status_code, 200)
+        self.assertEqual(legacy_diagnostic.json()["questions"], [])
+
+        owner_attempt = _request(
+            self.app,
+            "POST",
+            "/attempts",
+            headers=self._headers_for(7),
+            json_body={"user_id": 7, "question_id": 12, "submitted_answer_text": "My answer"},
+        )
+        other_attempt = _request(
+            self.app,
+            "POST",
+            "/attempts",
+            headers=self._headers_for(8),
+            json_body={"user_id": 8, "question_id": 12, "submitted_answer_text": "Try to read it"},
+        )
+        orphan_attempt = _request(
+            self.app,
+            "POST",
+            "/attempts",
+            headers=self._headers_for(7),
+            json_body={"user_id": 7, "question_id": 13, "submitted_answer_text": "No owner"},
+        )
+        ambiguous_owner_attempt = _request(
+            self.app,
+            "POST",
+            "/attempts",
+            headers=self._headers_for(7),
+            json_body={"user_id": 7, "question_id": 15, "submitted_answer_text": "Ambiguous owner"},
+        )
+        self.assertEqual(owner_attempt.status_code, 201)
+        self.assertEqual(other_attempt.status_code, 404)
+        self.assertEqual(orphan_attempt.status_code, 404)
+        self.assertEqual(ambiguous_owner_attempt.status_code, 404)
+
+        owner_session = _request(
+            self.app,
+            "POST",
+            "/practice/sessions",
+            headers=self._headers_for(7),
+            json_body={"user_id": 7, "subject": "9618", "question_ids": [12]},
+        )
+        other_session = _request(
+            self.app,
+            "POST",
+            "/practice/sessions",
+            headers=self._headers_for(8),
+            json_body={"user_id": 8, "subject": "9618", "question_ids": [12]},
+        )
+        orphan_session = _request(
+            self.app,
+            "POST",
+            "/practice/sessions",
+            headers=self._headers_for(7),
+            json_body={"user_id": 7, "subject": "9618", "question_ids": [13]},
+        )
+        ambiguous_owner_session = _request(
+            self.app,
+            "POST",
+            "/practice/sessions",
+            headers=self._headers_for(7),
+            json_body={"user_id": 7, "subject": "9618", "question_ids": [15]},
+        )
+        self.assertEqual(owner_session.status_code, 201)
+        self.assertEqual(other_session.status_code, 422)
+        self.assertEqual(orphan_session.status_code, 422)
+        self.assertEqual(ambiguous_owner_session.status_code, 422)
+
+    def test_privacy_export_includes_only_the_owners_generated_content(self) -> None:
+        self._seed_generated_question(
+            user_id=7,
+            question_id=12,
+            raw_text="Private question for student 7",
+        )
+        self._seed_generated_question(
+            user_id=8,
+            question_id=13,
+            raw_text="Private question for student 8",
+        )
+        self._seed_generated_question(
+            user_id=7,
+            question_id=14,
+            raw_text="Ambiguously owned question",
+        )
+        with Session(self.engine) as session:
+            subject = session.scalar(select(Subject).where(Subject.code == "9618"))
+            assert subject is not None
+            other_paper = Paper(user_id=8, subject_id=subject.id, mode="weak_spot")
+            session.add(other_paper)
+            session.flush()
+            session.add(
+                PaperQuestion(
+                    paper_id=other_paper.id,
+                    question_id=14,
+                    position=1,
+                    source_type="ai_generated",
+                )
+            )
+            session.commit()
+
+        response = _request(
+            self.app,
+            "GET",
+            "/privacy/export",
+            headers=self._headers_for(7),
+        )
+        self.assertEqual(response.status_code, 200)
+        paper_questions = response.json()["records"]["paper_questions"]
+        exported_by_question = {row["question_id"]: row for row in paper_questions}
+        self.assertEqual(set(exported_by_question), {12, 14})
+        self.assertEqual(
+            exported_by_question[12]["generated_content"],
+            {
+                "raw_text": "Private question for student 7",
+                "marks": 2,
+                "mark_scheme_points": [
+                    {"point_text": "Private mark point for 7", "marks_value": 1}
+                ],
+            },
+        )
+        self.assertIsNone(exported_by_question[14]["generated_content"])
+        self.assertEqual(
+            exported_by_question[14]["generated_content_status"],
+            "unavailable_ambiguous_or_missing_owner",
+        )
+        self.assertNotIn("Private question for student 8", json.dumps(paper_questions))
+        self.assertNotIn("Private mark point for 8", json.dumps(paper_questions))
+
+    def test_account_deletion_erases_owned_generated_content_and_redacts_referenced_content(self) -> None:
+        self._seed_generated_question(
+            user_id=7,
+            question_id=12,
+            raw_text="Delete this private question",
+        )
+        self._seed_generated_question(
+            user_id=8,
+            question_id=13,
+            raw_text="Keep the other student's private question",
+        )
+        self._seed_generated_question(
+            user_id=7,
+            question_id=14,
+            raw_text="Redact this cross-referenced question",
+        )
+        with Session(self.engine) as session:
+            session.add(
+                Attempt(
+                    user_id=8,
+                    question_id=14,
+                    submitted_answer_text="Legacy cross-owner answer",
+                )
+            )
+            session.commit()
+
+        response = _request(
+            self.app,
+            "DELETE",
+            "/privacy/account",
+            headers=self._headers_for(7),
+            json_body={"confirmation": "DELETE MY DATA"},
+        )
+        self.assertEqual(response.status_code, 204)
+
+        with Session(self.engine) as session:
+            self.assertIsNone(session.get(Question, 12))
+            other_owner_question = session.get(Question, 13)
+            self.assertIsNotNone(other_owner_question)
+            self.assertEqual(other_owner_question.raw_text, "Keep the other student's private question")
+            referenced_question = session.get(Question, 14)
+            self.assertIsNotNone(referenced_question)
+            self.assertEqual(referenced_question.raw_text, "")
+            self.assertIsNone(referenced_question.topic)
+            self.assertIsNone(referenced_question.marks)
+            self.assertEqual(
+                session.scalar(
+                    select(func.count()).select_from(MarkSchemePoint).where(
+                        MarkSchemePoint.question_id.in_([12, 14])
+                    )
+                ),
+                0,
+            )
+            self.assertEqual(
+                session.scalar(
+                    select(func.count()).select_from(MarkSchemePoint).where(
+                        MarkSchemePoint.question_id == 13
+                    )
+                ),
+                1,
+            )
+            self.assertEqual(session.get(Question, 11).raw_text, "Explain one benefit of cache memory.")
 
     def test_gemini_grading_validates_json_and_retries_once(self) -> None:
         model = _FakeGeminiModel(

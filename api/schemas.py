@@ -224,3 +224,7 @@ class PracticeSessionResponse(BaseModel):
     created_at: datetime
     started_at: datetime | None = None
     submitted_at: datetime | None = None
+
+
+class PrivacyDeletionRequest(BaseModel):
+    confirmation: Literal["DELETE MY DATA"]

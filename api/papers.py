@@ -139,6 +139,7 @@ def generate_weak_spot_paper(
     *,
     model: object | None = None,
     prompt_builder: PromptBuilder = build_prompt,
+    allow_ai_generation: bool = False,
 ) -> GeneratedPaperResponse:
     subject_code = payload.subject.strip()
     configured_papers = SUBJECT_PAPER_MARKS.get(subject_code)
@@ -205,6 +206,8 @@ def generate_weak_spot_paper(
     for _, topic, command_word in weak_cells:
         candidates = questions_by_cell.get((topic, command_word), [])
         fallback_count = max(0, payload.min_real_questions_per_cell - len(candidates))
+        if not allow_ai_generation:
+            fallback_count = 0
         for _ in range(fallback_count):
             if remaining <= 0:
                 break
