@@ -49,13 +49,23 @@ The default development server listens on `http://127.0.0.1:8000`.
   without silently fabricating marks. Practice-answer payload identity is checked against both the authenticated owner
   and the practice-session owner.
 - `GET /privacy/export` downloads the authenticated student's profile and app-held attempts, mastery, papers, diagnostics,
-  recommendations, evidence, and practice-session records as JSON. The response is marked `no-store`; shared question
-  and mark-scheme content is referenced by ID and not copied into the export. The current schema/API does not store
+  recommendations, evidence, and practice-session records as JSON. The response is marked `no-store`; shared
+  Cambridge question and mark-scheme content is referenced by ID and not copied into the export. The export includes
+  AI-generated question text, marks, and mark-scheme points only when the requesting student's paper is the sole owner.
+  Generated content with missing or ambiguous ownership is omitted and marked unavailable. The current schema/API does not store
   student notes or uploaded school-exam files; any future notes/file intake must be added to the export and deletion
   scope before it is enabled.
 - `DELETE /privacy/account` deletes the authenticated student's application-database profile and user-owned rows after
   the request body confirms `DELETE MY DATA`. It is idempotent for an already-deleted profile and preserves shared
-  question, curriculum, and subject records.
+  question, curriculum, and subject records. It removes the student's generated questions and mark-scheme points when
+  no other records reference them; otherwise it clears their text, marks, and generated topic metadata while preserving
+  referenced IDs. Orphaned AI-generated questions left by earlier deletions are scrubbed by migration 0007. That data
+  cleanup is irreversible and its downgrade intentionally does not restore private text.
+
+AI-generated questions are private to the student whose paper owns them. The public `GET /questions` catalog and
+diagnostic selection exclude them. Attempt grading and practice-session creation require a single unambiguous owner
+matching the authenticated student; ownerless or multiply owned generated questions are unavailable. Real Cambridge
+questions remain in the shared catalogue and retain their existing content behavior.
 
 Personal endpoints, including `/attempts`, `/mastery/{user_id}`, `/papers/generate`, guidance, diagnostics,
 recommendation dismissal, practice sessions, and both `/privacy` routes, require an HMAC-verified Bearer token and enforce self-ownership

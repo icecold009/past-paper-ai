@@ -8,7 +8,7 @@ from uuid import uuid4
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse, Response
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
@@ -16,7 +16,12 @@ from src.build_prompt import build_prompt
 from api.grading import GeminiGrade, grade_answer
 from api.auth import AuthContext, get_auth_context
 from api.papers import generate_weak_spot_paper
-from api.privacy import delete_student_data, export_student_data
+from api.privacy import (
+    delete_student_data,
+    export_student_data,
+    generated_question_owner_ids,
+    is_generated_question,
+)
 from api.personalization import build_guidance, dismiss_recommendation, approved_chapters
 from api.recommendation_selection import RecommendationSelector
 from api.schemas import (
@@ -49,6 +54,7 @@ from src.db.models import (
     DiagnosticResponse,
     Mastery,
     Paper,
+    PaperQuestion,
     PracticeAnswer,
     PracticeSession,
     Question,
@@ -169,6 +175,13 @@ def _require_privacy_owner(session: Session, context: AuthContext, user_id: int)
     if user.school_id != context.school_id:
         raise HTTPException(status_code=403, detail="The authenticated school scope does not match the user")
     return user
+
+
+def _require_generated_question_owner(session: Session, question: Question, user_id: int) -> None:
+    if not is_generated_question(session, question):
+        return
+    if generated_question_owner_ids(session, question.id) != {user_id}:
+        raise HTTPException(status_code=404, detail="Question was not found")
 
 
 def _practice_response(session: Session, practice: PracticeSession) -> PracticeSessionResponse:
@@ -334,7 +347,21 @@ def list_questions(
     effective_topic = topic.strip() if isinstance(topic, str) else None
     effective_command_word = command_word.strip() if isinstance(command_word, str) else None
     effective_limit = limit if isinstance(limit, int) else 50
-    query = select(Question).join(Subject).order_by(Subject.code, Question.id).limit(effective_limit)
+    generated_link = (
+        select(PaperQuestion.question_id)
+        .where(
+            PaperQuestion.question_id == Question.id,
+            PaperQuestion.source_type == "ai_generated",
+        )
+        .exists()
+    )
+    query = (
+        select(Question)
+        .join(Subject)
+        .where(Question.paper != "ai_generated", ~generated_link)
+        .order_by(Subject.code, Question.id)
+        .limit(effective_limit)
+    )
     if effective_subject:
         query = query.where(Subject.code == effective_subject)
     if effective_topic:
@@ -370,6 +397,7 @@ def create_attempt(
     question = session.scalar(select(Question).where(Question.id == payload.question_id))
     if question is None:
         raise HTTPException(status_code=404, detail=f"Question {payload.question_id} was not found")
+    _require_generated_question_owner(session, question, user.id)
     if not question.mark_scheme_points:
         raise HTTPException(
             status_code=422,
@@ -445,12 +473,44 @@ def get_mastery(
     if db_subject is None:
         raise HTTPException(status_code=404, detail=f"Subject {subject} was not found")
 
+    generated_link = (
+        select(PaperQuestion.question_id)
+        .where(
+            PaperQuestion.question_id == Question.id,
+            PaperQuestion.source_type == "ai_generated",
+        )
+        .exists()
+    )
+    owned_generated_link = (
+        select(PaperQuestion.question_id)
+        .join(Paper, Paper.id == PaperQuestion.paper_id)
+        .where(
+            PaperQuestion.question_id == Question.id,
+            PaperQuestion.source_type == "ai_generated",
+            Paper.user_id == user.id,
+        )
+        .exists()
+    )
+    other_generated_owner = (
+        select(PaperQuestion.question_id)
+        .join(Paper, Paper.id == PaperQuestion.paper_id)
+        .where(
+            PaperQuestion.question_id == Question.id,
+            PaperQuestion.source_type == "ai_generated",
+            Paper.user_id != user.id,
+        )
+        .exists()
+    )
     dimensions = session.execute(
         select(Question.topic, Question.subtopic, Question.command_word)
         .where(
             Question.subject_id == db_subject.id,
             Question.topic.is_not(None),
             Question.command_word.is_not(None),
+            or_(
+                and_(Question.paper != "ai_generated", ~generated_link),
+                and_(owned_generated_link, ~other_generated_owner),
+            ),
         )
         .distinct()
     ).all()
@@ -560,298 +620,15 @@ def dismiss_recommendation_endpoint(
     return _recommendation_response(recommendation)
 
 
-def _diagnostic_response(diagnostic: Diagnostic) -> DiagnosticStartResponse:
+def _diagnostic_response(session: Session, diagnostic: Diagnostic) -> DiagnosticStartResponse:
     return DiagnosticStartResponse(
         id=diagnostic.id,
         user_id=diagnostic.user_id,
         subject=_subject_response(diagnostic.subject),
         grade_stage=diagnostic.grade_stage,
         state=diagnostic.state,
-        questions=[_question_response(response.question) for response in diagnostic.responses],
-    )
-
-
-@app.post("/diagnostics", response_model=DiagnosticStartResponse, status_code=status.HTTP_201_CREATED)
-def start_diagnostic(
-    payload: DiagnosticStartRequest,
-    auth: AuthContext = Depends(get_auth_context),
-    session: Session = Depends(_session_for_request),
-) -> DiagnosticStartResponse:
-    user = _require_user_access(session, auth, payload.user_id)
-    db_subject = session.scalar(select(Subject).where(Subject.code == payload.subject.strip()))
-    if db_subject is None:
-        raise HTTPException(status_code=404, detail=f"Subject {payload.subject} was not found")
-    if payload.idempotency_key:
-        existing = session.scalar(
-            select(Diagnostic).where(
-                Diagnostic.user_id == user.id,
-                Diagnostic.idempotency_key == payload.idempotency_key,
-            )
-        )
-        if existing is not None:
-            return _diagnostic_response(existing)
-
-    query = (
-        select(Question)
-        .join(QuestionChapterMapping, QuestionChapterMapping.question_id == Question.id)
-        .join(CurriculumChapter, CurriculumChapter.id == QuestionChapterMapping.chapter_id)
-        .where(
-            Question.subject_id == db_subject.id,
-            QuestionChapterMapping.review_status == "approved",
-            CurriculumChapter.review_status == "approved",
-        )
-        .distinct()
-        .order_by(Question.id)
-        .limit(payload.question_limit)
-    )
-    questions = list(session.scalars(query).all())
-    if not questions:
-        raise HTTPException(status_code=422, detail="No approved mapped questions are available for this diagnostic")
-
-    now = datetime.now(timezone.utc)
-    diagnostic = Diagnostic(
-        user_id=user.id,
-        subject_id=db_subject.id,
-        grade_stage=payload.grade_stage or user.grade_stage,
-        state="active",
-        idempotency_key=payload.idempotency_key,
-        created_at=now,
-    )
-    session.add(diagnostic)
-    session.flush()
-    diagnostic.responses = [DiagnosticResponse(question_id=question.id) for question in questions]
-    session.commit()
-    return _diagnostic_response(diagnostic)
-
-
-@app.put("/diagnostics/{diagnostic_id}/responses/{question_id}", response_model=DiagnosticResponseResult)
-def save_diagnostic_response(
-    diagnostic_id: int,
-    question_id: int,
-    payload: DiagnosticResponseSave,
-    auth: AuthContext = Depends(get_auth_context),
-    session: Session = Depends(_session_for_request),
-) -> DiagnosticResponseResult:
-    diagnostic = session.get(Diagnostic, diagnostic_id)
-    if diagnostic is None:
-        raise HTTPException(status_code=404, detail=f"Diagnostic {diagnostic_id} was not found")
-    user = _require_user_access(session, auth, diagnostic.user_id)
-    if payload.user_id != user.id:
-        raise HTTPException(status_code=403, detail="You may only save answers for your own diagnostic")
-    if diagnostic.state != "active":
-        raise HTTPException(status_code=409, detail="This diagnostic is no longer active")
-    response = session.scalar(
-        select(DiagnosticResponse).where(
-            DiagnosticResponse.diagnostic_id == diagnostic_id,
-            DiagnosticResponse.question_id == question_id,
-        )
-    )
-    if response is None:
-        raise HTTPException(status_code=404, detail="Question is not part of this diagnostic")
-    response.answer_text = payload.answer_text
-    response.answered_at = datetime.now(timezone.utc)
-    session.commit()
-    return DiagnosticResponseResult(
-        diagnostic_id=diagnostic.id,
-        question_id=question_id,
-        answer_text=response.answer_text or "",
-        state=diagnostic.state,
-    )
-
-
-@app.post("/diagnostics/{diagnostic_id}/submit", response_model=DiagnosticStartResponse)
-def submit_diagnostic(
-    diagnostic_id: int,
-    user_id: int = Query(ge=1),
-    auth: AuthContext = Depends(get_auth_context),
-    session: Session = Depends(_session_for_request),
-) -> DiagnosticStartResponse:
-    diagnostic = session.get(Diagnostic, diagnostic_id)
-    if diagnostic is None:
-        raise HTTPException(status_code=404, detail=f"Diagnostic {diagnostic_id} was not found")
-    _require_user_access(session, auth, user_id)
-    if diagnostic.user_id != user_id:
-        raise HTTPException(status_code=403, detail="You may only submit your own diagnostic")
-    if diagnostic.state == "active":
-        diagnostic.state = "submitted"
-        diagnostic.submitted_at = datetime.now(timezone.utc)
-        session.commit()
-    return _diagnostic_response(diagnostic)
-
-
-@app.post("/practice/sessions", response_model=PracticeSessionResponse, status_code=status.HTTP_201_CREATED)
-def create_practice_session(
-    payload: PracticeSessionCreate,
-    auth: AuthContext = Depends(get_auth_context),
-    session: Session = Depends(_session_for_request),
-) -> PracticeSessionResponse:
-    user = _require_user_access(session, auth, payload.user_id)
-    db_subject = session.scalar(select(Subject).where(Subject.code == payload.subject.strip()))
-    if db_subject is None:
-        raise HTTPException(status_code=404, detail=f"Subject {payload.subject} was not found")
-    if payload.idempotency_key:
-        existing = session.scalar(
-            select(PracticeSession).where(
-                PracticeSession.user_id == user.id,
-                PracticeSession.idempotency_key == payload.idempotency_key,
-            )
-        )
-        if existing is not None:
-            return _practice_response(session, existing)
-
-    question_ids = list(dict.fromkeys(payload.question_ids))
-    questions = list(
-        session.scalars(
-            select(Question).where(
-                Question.id.in_(question_ids),
-                Question.subject_id == db_subject.id,
-            )
-        ).all()
-    )
-    question_by_id = {question.id: question for question in questions}
-    missing = [question_id for question_id in question_ids if question_id not in question_by_id]
-    if missing:
-        raise HTTPException(status_code=422, detail=f"Questions are unavailable for this subject: {missing}")
-
-    if payload.paper_id is not None:
-        paper = session.get(Paper, payload.paper_id)
-        if paper is None or paper.user_id != user.id or paper.subject_id != db_subject.id:
-            raise HTTPException(status_code=403, detail="The paper is not owned by this user or subject")
-    if payload.recommendation_id is not None:
-        recommendation = session.get(Recommendation, payload.recommendation_id)
-        if recommendation is None or recommendation.user_id != user.id:
-            raise HTTPException(status_code=403, detail="The recommendation is not owned by this user")
-
-    now = datetime.now(timezone.utc)
-    practice = PracticeSession(
-        user_id=user.id,
-        subject_id=db_subject.id,
-        paper_id=payload.paper_id,
-        recommendation_id=payload.recommendation_id,
-        state="active",
-        idempotency_key=payload.idempotency_key,
-        created_at=now,
-        started_at=now,
-    )
-    session.add(practice)
-    session.flush()
-    practice.answers = [PracticeAnswer(question_id=question_id) for question_id in question_ids]
-    session.commit()
-    return _practice_response(session, practice)
-
-
-@app.put("/practice/sessions/{session_id}/answers/{question_id}", response_model=PracticeAnswerResponse)
-def save_practice_answer(
-    session_id: int,
-    question_id: int,
-    payload: DiagnosticResponseSave,
-    auth: AuthContext = Depends(get_auth_context),
-    session: Session = Depends(_session_for_request),
-) -> PracticeAnswerResponse:
-    practice = session.get(PracticeSession, session_id)
-    if practice is None:
-        raise HTTPException(status_code=404, detail=f"Practice session {session_id} was not found")
-    user = _require_user_access(session, auth, practice.user_id)
-    if payload.user_id != user.id:
-        raise HTTPException(status_code=403, detail="You may only save answers for your own practice session")
-    if practice.state not in {"draft", "active"}:
-        raise HTTPException(status_code=409, detail="This practice session is no longer editable")
-    answer = session.scalar(
-        select(PracticeAnswer).where(
-            PracticeAnswer.session_id == session_id,
-            PracticeAnswer.question_id == question_id,
-        )
-    )
-    if answer is None:
-        raise HTTPException(status_code=404, detail="Question is not part of this practice session")
-    answer.answer_text = payload.answer_text
-    answer.updated_at = datetime.now(timezone.utc)
-    session.commit()
-    return PracticeAnswerResponse(question_id=question_id, answer_text=answer.answer_text, status=answer.status)
-
-
-@app.post("/practice/sessions/{session_id}/submit", response_model=PracticeSessionResponse)
-def submit_practice_session(
-    session_id: int,
-    user_id: int = Query(ge=1),
-    auth: AuthContext = Depends(get_auth_context),
-    session: Session = Depends(_session_for_request),
-) -> PracticeSessionResponse:
-    practice = session.get(PracticeSession, session_id)
-    if practice is None:
-        raise HTTPException(status_code=404, detail=f"Practice session {session_id} was not found")
-    _require_user_access(session, auth, user_id)
-    if practice.user_id != user_id:
-        raise HTTPException(status_code=403, detail="You may only submit your own practice session")
-    if practice.state == "submitted":
-        return _practice_response(session, practice)
-    if practice.state not in {"draft", "active"}:
-        raise HTTPException(status_code=409, detail="This practice session cannot be submitted")
-    missing_answers = [answer.question_id for answer in practice.answers if not answer.answer_text.strip()]
-    if missing_answers:
-        raise HTTPException(status_code=422, detail=f"Answer every question before submitting: {missing_answers}")
-    now = datetime.now(timezone.utc)
-    practice.state = "submitted"
-    practice.submitted_at = now
-    for answer in practice.answers:
-        answer.status = "submitted"
-        answer.updated_at = now
-    session.commit()
-    return _practice_response(session, practice)
-
-
-@app.post("/papers/generate", response_model=GeneratedPaperResponse, status_code=status.HTTP_201_CREATED)
-def create_paper(
-    payload: PaperGenerateRequest,
-    request: Request,
-    auth: AuthContext = Depends(get_auth_context),
-    session: Session = Depends(_session_for_request),
-) -> GeneratedPaperResponse:
-    _require_user_access(session, auth, payload.user_id)
-    prompt_builder = request.app.state.paper_prompt_builder
-    return generate_weak_spot_paper(
-        session,
-        payload,
-        model=request.app.state.paper_model,
-        prompt_builder=prompt_builder or build_prompt,
-        allow_ai_generation=(
-            getattr(request.app.state, "student_data_ai_approved", False)
-            and request.app.state.paper_model is not None
-        ),
-    )
-
-
-@app.get("/privacy/export")
-def export_own_student_data(
-    auth: AuthContext = Depends(get_auth_context),
-    session: Session = Depends(_session_for_request),
-) -> JSONResponse:
-    user = _require_privacy_owner(session, auth, auth.user_id)
-    response = JSONResponse(
-        content=jsonable_encoder(export_student_data(session, user)),
-        headers={
-            "Cache-Control": "private, no-store",
-            "Pragma": "no-cache",
-            "Content-Disposition": 'attachment; filename="student-data-export.json"',
-            "X-Content-Type-Options": "nosniff",
-        },
-    )
-    return response
-
-
-@app.delete("/privacy/account", status_code=status.HTTP_204_NO_CONTENT)
-def delete_own_student_data(
-    payload: PrivacyDeletionRequest,
-    auth: AuthContext = Depends(get_auth_context),
-    session: Session = Depends(_session_for_request),
-) -> Response:
-    user = session.get(User, auth.user_id)
-    if user is not None:
-        _require_privacy_owner(session, auth, user.id)
-        delete_student_data(session, user.id)
-        session.commit()
-    return Response(
-        status_code=status.HTTP_204_NO_CONTENT,
-        headers={"Cache-Control": "private, no-store", "Pragma": "no-cache"},
-    )
-
+        questions=[
+            _question_response(response.question)
+            for response in diagnostic.responses
+            if not is_generated_question(session, response.question)
+            or genes^úãkh‘éì¶»§q«^t€€€€€€€€€€€€€€À°(€€€€€€€€€€€€€€€€€€€µ½‘•°¹}}¹…µ•}|°(€€€€€€€€€€€€€€€€¤(€€€€€€€€€€€‘¥…¹½ÍÑ¥}¥‘Ì€ôÍ•±•Ð¡¥…¹½ÍÑ¥Œ¹¥¤¹Ý¡•É”¡¥…¹½ÍÑ¥Œ¹ÕÍ•É}¥€ôô€Ü¤(€€€€€€€€€€€ÁÉ…Ñ¥•}Í•ÍÍ¥½¹}¥‘Ì€ôÍ•±•Ð¡AÉ…Ñ¥•M•ÍÍ¥½¸¹¥¤¹Ý¡•É”¡AÉ…Ñ¥•M•ÍÍ¥½¸¹ÕÍ•É}¥€ôô€Ü¤(€€€€€€€€€€€ÕÍ•É}Á…Á•É}¥‘Ì€ôÍ•±•Ð¡A…Á•È¹¥¤¹Ý¡•É”¡A…Á•È¹ÕÍ•É}¥€ôô€Ü¤(€€€€€€€€€€€Í•±˜¹…ÍÍ•ÉÑÅÕ…° (€€€€€€€€€€€€€€€Í•ÍÍ¥½¸¹Í…±…È (€€€€€€€€€€€€€€€€€€€Í•±•Ð¡™Õ¹Œ¹½Õ¹Ð ¤¤¹Í•±•Ñ}™É½´¡¥…¹½ÍÑ¥I•ÍÁ½¹Í”¤¹Ý¡•É” (€€€€€€€€€€€€€€€€€€€€€€€¥…¹½ÍÑ¥I•ÍÁ½¹Í”¹‘¥…¹½ÍÑ¥}¥¹¥¹|¡‘¥…¹½ÍÑ¥}¥‘Ì¤(€€€€€€€€€€€€€€€€€€€€¤(€€€€€€€€€€€€€€€€¤°(€€€€€€€€€€€€€€€€À°(€€€€€€€€€€€€¤(€€€€€€€€€€€Í•±˜¹…ÍÍ•ÉÑÅÕ…° (€€€€€€€€€€€€€€€Í•ÍÍ¥½¸¹Í…±…È (€€€€€€€€€€€€€€€€€€€Í•±•Ð¡™Õ¹Œ¹½Õ¹Ð ¤¤¹Í•±•Ñ}™É½´¡AÉ…Ñ¥•¹ÍÝ•È¤¹Ý¡•É” (€€€€€€€€€€€€€€€€€€€€€€€AÉ…Ñ¥•¹ÍÝ•È¹Í•ÍÍ¥½¹}¥¹¥¹|¡ÁÉ…Ñ¥•}Í•ÍÍ¥½¹}¥‘Ì¤(€€€€€€€€€€€€€€€€€€€€¤(€€€€€€€€€€€€€€€€¤°(€€€€€€€€€€€€€€€€À°(€€€€€€€€€€€€¤(€€€€€€€€€€€Í•±˜¹…ÍÍ•ÉÑÅÕ…° (€€€€€€€€€€€€€€€Í•ÍÍ¥½¸¹Í…±…È (€€€€€€€€€€€€€€€€€€€Í•±•Ð¡™Õ¹Œ¹½Õ¹Ð ¤¤¹Í•±•Ñ}™É½´¡A…Á•ÉEÕ•ÍÑ¥½¸¤¹Ý¡•É” (€€€€€€€€€€€€€€€€€€€€€€€A…Á•ÉEÕ•ÍÑ¥½¸¹Á…Á•É}¥¹¥¹|¡ÕÍ•É}Á…Á•É}¥‘Ì¤(€€€€€€€€€€€€€€€€€€€€¤(€€€€€€€€€€€€€€€€¤°(€€€€€€€€€€€€€€€€À°(€€€€€€€€€€€€¤(€€€€€€€€€€€Í•±˜¹…ÍÍ•ÉÑÅÕ…°¡Í•ÍÍ¥½¸¹Í…±…È¡Í•±•Ð¡™Õ¹Œ¹½Õ¹Ð ¤¤¹Í•±•Ñ}™É½´¡ÑÑ•µÁÐ¤¹Ý¡•É”¡ÑÑ•µÁÐ¹ÕÍ•É}¥€ôô€à¤¤°€Ä¤(€€€€€€€€€€€Í•±˜¹…ÍÍ•ÉÑÅÕ…°¡Í•ÍÍ¥½¸¹Í…±…È¡Í•±•Ð¡™Õ¹Œ¹½Õ¹Ð ¤¤¹Í•±•Ñ}™É½´¡A…Á•ÉEÕ•ÍÑ¥½¸¤¤°€Ä¤(€€€€€€€€€€€Í•±˜¹…ÍÍ•ÉÑ%Í9½Ñ9½¹”¡Í•ÍÍ¥½¸¹•Ð¡EÕ•ÍÑ¥½¸°€ÄÄ¤¤(€€€€€€€€€€€Í•±˜¹…ÍÍ•ÉÑ%Í9½Ñ9½¹”¡Í•ÍÍ¥½¸¹Í…±…È¡Í•±•Ð¡5…É­M¡•µ•A½¥¹Ð¤¹Ý¡•É”¡5…É­M¡•µ•A½¥¹Ð¹ÅÕ•ÍÑ¥½¹}¥€ôô€ÄÄ¤¤¤((€€€‘•˜Ñ•ÍÑ}•¹•É…Ñ•‘}ÅÕ•ÍÑ¥½¹Í}…É•}¡¥‘‘•¹}…¹‘}½Ý¹•É}Í½Á•‘}™½É}…ÑÑ•µÁÑÍ}…¹‘}Í•ÍÍ¥½¹Ì¡Í•±˜¤€´ø9½¹”è(€€€€€€€Í•±˜¹}Í••‘}•¹•É…Ñ•‘}ÅÕ•ÍÑ¥½¸ (€€€€€€€€€€€ÕÍ•É}¥ôÜ°(€€€€€€€€€€€ÅÕ•ÍÑ¥½¹}¥ôÄÈ°(€€€€€€€€€€€É…Ý}Ñ•áÐô‰AÉ¥Ù…Ñ”ÅÕ•ÍÑ¥½¸™½ÈÍÑÕ‘•¹Ð€Üˆ°(€€€€€€€€¤(€€€€€€€Í•±˜¹}Í••‘}•¹•É…Ñ•‘}ÅÕ•ÍÑ¥½¸ (€€€€€€€€€€€ÕÍ•É}¥ôÜ°(€€€€€€€€€€€ÅÕ•ÍÑ¥½¹}¥ôÄÌ°(€€€€€€€€€€€É…Ý}Ñ•áÐô‰=ÉÁ¡…¹•ÁÉ¥Ù…Ñ”ÅÕ•ÍÑ¥½¸ˆ°(€€€€€€€€€€€±¥¹­•õ…±Í”°(€€€€€€€€¤(€€€€€€€Í•±˜¹}Í••‘}•¹•É…Ñ•‘}ÅÕ•ÍÑ¥½¸ (€€€€€€€€€€€ÕÍ•É}¥ôÜ°(€€€€€€€€€€€ÅÕ•ÍÑ¥½¹}¥ôÄÔ°(€€€€€€€€€€€É…Ý}Ñ•áÐô‰µ‰¥Õ½ÕÍ±ä½Ý¹••¹•É…Ñ•ÅÕ•ÍÑ¥½¸ˆ°(€€€€€€€€¤(€€€€€€€Ý¥Ñ M•ÍÍ¥½¸¡Í•±˜¹•¹¥¹”¤…ÌÍ•ÍÍ¥½¸è(€€€€€€€€€€€ÁÉ¥Ù…Ñ•}ÅÕ•ÍÑ¥½¸€ôÍ•ÍÍ¥½¸¹•Ð¡EÕ•ÍÑ¥½¸°€ÄÈ¤(€€€€€€€€€€€…ÍÍ•ÉÐÁÉ¥Ù…Ñ•}ÅÕ•ÍÑ¥½¸¥Ì¹½Ð9½¹”(€€€€€€€€€€€ÁÉ¥Ù…Ñ•}ÅÕ•ÍÑ¥½¸¹Ñ½Á¥Œ€ô€‰AÉ¥Ù…Ñ”•¹•É…Ñ•‘¥µ•¹Í¥½¸ˆ(€€€€€€€€€€€ÁÉ¥Ù…Ñ•}ÅÕ•ÍÑ¥½¸¹ÍÕ‰Ñ½Á¥Œ€ô€‰MÑÕ‘•¹Ð€Ü½¹±äˆ(€€€€€€€€€€€ÁÉ¥Ù…Ñ•}ÅÕ•ÍÑ¥½¸¹½µµ…¹‘}Ý½É€ô€‰±…ÍÍ¥™äˆ(€€€€€€€€€€€¡…ÁÑ•È€ôÍ•ÍÍ¥½¸¹Í…±…È¡Í•±•Ð¡ÕÉÉ¥Õ±Õµ¡…ÁÑ•È¤¤(€€€€€€€€€€€ÍÕ‰©•Ð€ôÍ•ÍÍ¥½¸¹Í…±…È¡Í•±•Ð¡MÕ‰©•Ð¤¹Ý¡•É”¡MÕ‰©•Ð¹½‘”€ôô€ˆäØÄàˆ¤¤(€€€€€€€€€€€…ÍÍ•ÉÐ¡…ÁÑ•È¥Ì¹½Ð9½¹”…¹ÍÕ‰©•Ð¥Ì¹½Ð9½¹”(€€€€€€€€€€€Í•ÍÍ¥½¸¹…‘ (€€€€€€€€€€€€€€€EÕ•ÍÑ¥½¹¡…ÁÑ•É5…ÁÁ¥¹œ (€€€€€€€€€€€€€€€€€€€ÅÕ•ÍÑ¥½¹}¥ôÄÈ°(€€€€€€€€€€€€€€€€€€€¡…ÁÑ•É}¥õ¡…ÁÑ•È¹¥°(€€€€€€€€€€€€€€€€€€€½¹™¥‘•¹”ôÄ¸À°(€€€€€€€€€€€€€€€€€€€É•Ù¥•Ý}ÍÑ…ÑÕÌô‰…ÁÁÉ½Ù•ˆ°(€€€€€€€€€€€€€€€€¤(€€€€€€€€€€€€¤(€€€€€€€€€€€½Ñ¡•É}Á…Á•È€ôA…Á•È¡ÕÍ•É}¥ôà°ÍÕ‰©•Ñ}¥õÍÕ‰©•Ð¹¥°µ½‘”ô‰Ý•…­}ÍÁ½Ðˆ¤(€€€€€€€€€€€Í•ÍÍ¥½¸¹…‘¡½Ñ¡•É}Á…Á•È¤(€€€€€€€€€€€Í•ÍÍ¥½¸¹™±ÕÍ  ¤(€€€€€€€€€€€Í•ÍÍ¥½¸¹…‘ (€€€€€€€€€€€€€€€A…Á•ÉEÕ•ÍÑ¥½¸ (€€€€€€€€€€€€€€€€€€€Á…Á•É}¥õ½Ñ¡•É}Á…Á•È¹¥°(€€€€€€€€€€€€€€€€€€€ÅÕ•ÍÑ¥½¹}¥ôÄÔ°(€€€€€€€€€€€€€€€€€€€Á½Í¥Ñ¥½¸ôÄ°(€€€€€€€€€€€€€€€€€€€Í½ÕÉ•}ÑåÁ”ô‰…¥}•¹•É…Ñ•ˆ°(€€€€€€€€€€€€€€€€¤(€€€€€€€€€€€€¤(€€€€€€€€€€€±•…å}‘¥…¹½ÍÑ¥Œ€ô¥…¹½ÍÑ¥Œ (€€€€€€€€€€€€€€€ÕÍ•É}¥ôà°(€€€€€€€€€€€€€€€ÍÕ‰©•Ñ}¥õÍÕ‰©•Ð¹¥°(€€€€€€€€€€€€€€€É…‘•}ÍÑ…”ô‰Lˆ°(€€€€€€€€€€€€€€€ÍÑ…Ñ”ô‰…Ñ¥Ù”ˆ°(€€€€€€€€€€€€€€€¥‘•µÁ½Ñ•¹å}­•äô‰±•…äµÁÉ¥Ù…Ñ”µÅÕ•ÍÑ¥½¸ˆ°(€€€€€€€€€€€€¤(€€€€€€€€€€€Í•ÍÍ¥½¸¹…‘¡±•…å}‘¥…¹½ÍÑ¥Œ¤(€€€€€€€€€€€Í•ÍÍ¥½¸¹™±ÕÍ  ¤(€€€€€€€€€€€±•…å}‘¥…¹½ÍÑ¥}¥€ô±•…å}‘¥…¹½ÍÑ¥Œ¹¥(€€€€€€€€€€€Í•ÍÍ¥½¸¹…‘¡¥…¹½ÍÑ¥I•ÍÁ½¹Í”¡‘¥…¹½ÍÑ¥}¥õ±•…å}‘¥…¹½ÍÑ¥Œ¹¥°ÅÕ•ÍÑ¥½¹}¥ôÄÈ¤¤(€€€€€€€€€€€Í•ÍÍ¥½¸¹½µµ¥Ð ¤((€€€€€€€½Ñ¡•É}µ…ÍÑ•Éä€ô}É•ÅÕ•ÍÐ (€€€€€€€€€€€Í•±˜¹…ÁÀ°(€€€€€€€€€€€€‰Pˆ°(€€€€€€€€€€€€ˆ½µ…ÍÑ•Éä¼àýÍÕ‰©•ÐôäØÄàˆ°(€€€€€€€€€€€¡•…‘•ÉÌõÍ•±˜¹}¡•…‘•ÉÍ}™½È à¤°(€€€€€€€€¤(€€€€€€€½Ý¹•É}µ…ÍÑ•Éä€ô}É•ÅÕ•ÍÐ (€€€€€€€€€€€Í•±˜¹…ÁÀ°(€€€€€€€€€€€€‰Pˆ°(€€€€€€€€€€€€ˆ½µ…ÍÑ•Éä¼ÜýÍÕ‰©•ÐôäØÄàˆ°(€€€€€€€€€€€¡•…‘•ÉÌõÍ•±˜¹}¡•…‘•ÉÍ}™½È Ü¤°(€€€€€€€€¤(€€€€€€€Í•±˜¹…ÍÍ•ÉÑ9½Ñ%¸ (€€€€€€€€€€€€‰AÉ¥Ù…Ñ”•¹•É…Ñ•‘¥µ•¹Í¥½¸ˆ°(€€€€€€€€€€€©Í½¸¹‘ÕµÁÌ¡½Ñ¡•É}µ…ÍÑ•Éä¹©Í½¸ ¥l‰•±±Ì‰t¤°(€€€€€€€€¤(€€€€€€€Í•±˜¹…ÍÍ•ÉÑ%¸ (€€€€€€€€€€€€‰AÉ¥Ù…Ñ”•¹•É…Ñ•‘¥µ•¹Í¥½¸ˆ°(€€€€€€€€€€€©Í½¸¹‘ÕµÁÌ¡½Ý¹•É}µ…ÍÑ•Éä¹©Í½¸ ¥l‰•±±Ì‰t¤°(€€€€€€€€¤((€€€€€€€Ý¥Ñ M•ÍÍ¥½¸¡Í•±˜¹•¹¥¹”¤…ÌÍ•ÍÍ¥½¸è(€€€€€€€€€€€ÅÕ•ÍÑ¥½¹Ì€ô±¥ÍÑ}ÅÕ•ÍÑ¥½¹Ì¡ÍÕ‰©•ÐôˆäØÄàˆ°±¥µ¥ÐôÄÀ°Í•ÍÍ¥½¸õÍ•ÍÍ¥½¸¤(€€€€€€€Í•±˜¹…ÍÍ•ÉÑÅÕ…°¡mÅÕ•ÍÑ¥½¸¹¥™½ÈÅÕ•ÍÑ¥½¸¥¸ÅÕ•ÍÑ¥½¹Ít°lÄÅt¤((€€€€€€€‘¥…¹½ÍÑ¥Œ€ô}É•ÅÕ•ÍÐ (€€€€€€€€€€€Í•±˜¹…ÁÀ°(€€€€€€€€€€€€‰A=MPˆ°(€€€€€€€€€€€€ˆ½‘¥…¹½ÍÑ¥Ìˆ°(€€€€€€€€€€€¡•…‘•ÉÌõÍ•±˜¹}¡•…‘•ÉÍ}™½È Ü¤°(€€€€€€€€€€€©Í½¹}‰½‘äõì‰ÕÍ•É}¥ˆè€Ü°€‰ÍÕ‰©•Ðˆè€ˆäØÄàˆ°€‰É…‘•}ÍÑ…”ˆè€‰Lˆ°€‰ÅÕ•ÍÑ¥½¹}±¥µ¥Ðˆè€ÄÁô°(€€€€€€€€¤(€€€€€€€Í•±˜¹…ÍÍ•ÉÑÅÕ…°¡‘¥…¹½ÍÑ¥Œ¹ÍÑ…ÑÕÍ}½‘”°€ÈÀÄ¤(€€€€€€€Í•±˜¹…ÍÍ•ÉÑÅÕ…°¡mÅÕ•ÍÑ¥½¹l‰¥‰t™½ÈÅÕ•ÍÑ¥½¸¥¸‘¥…¹½ÍÑ¥Œ¹©Í½¸ ¥l‰ÅÕ•ÍÑ¥½¹Ì‰ut°lÄÅt¤(€€€€€€€±•…å}‘¥…¹½ÍÑ¥Œ€ô}É•ÅÕ•ÍÐ (€€€€€€€€€€€Í•±˜¹…ÁÀ°(€€€€€€€€€€€€‰A=MPˆ°(€€€€€€€€€€€˜ˆ½‘¥…¹½ÍÑ¥Ì½í±•…å}‘¥…¹½ÍÑ¥}¥‘ô½ÍÕ‰µ¥ÐýÕÍ•É}¥ôàˆ°(€€€€€€€€€€€¡•…‘•ÉÌõÍ•±˜¹}¡•…‘•ÉÍ}™½È à¤°(€€€€€€€€¤(€€€€€€€Í•±˜¹…ÍÍ•ÉÑÅÕ…°¡±•…å}‘¥…¹½ÍÑ¥Œ¹ÍÑ…ÑÕÍ}½‘”°€ÈÀÀ¤(€€€€€€€Í•±˜¹…ÍÍ•ÉÑÅÕ…°¡±•…å}‘¥…¹½ÍÑ¥Œ¹©Í½¸ ¥l‰ÅÕ•ÍÑ¥½¹Ì‰t°mt¤((€€€€€€€½Ý¹•É}…ÑÑ•µÁÐ€ô}É•ÅÕ•ÍÐ (€€€€€€€€€€€Í•±˜¹…ÁÀ°(€€€€€€€€€€€€‰A=MPˆ°(€€€€€€€€€€€€ˆ½…ÑÑ•µÁÑÌˆ°(€€€€€€€€€€€¡•…‘•ÉÌõÍ•±˜¹}¡•…‘•ÉÍ}™½È Ü¤°(€€€€€€€€€€€©Í½¹}‰½‘äõì‰ÕÍ•É}¥ˆè€Ü°€‰ÅÕ•ÍÑ¥½¹}¥ˆè€ÄÈ°€‰ÍÕ‰µ¥ÑÑ•‘}…¹ÍÝ•É}Ñ•áÐˆè€‰5ä…¹ÍÝ•È‰ô°(€€€€€€€€¤(€€€€€€€½Ñ¡•É}…ÑÑ•µÁÐ€ô}É•ÅÕ•ÍÐ (€€€€€€€€€€€Í•±˜¹…ÁÀ°(€€€€€€€€€€€€‰A=MPˆ°(€€€€€€€€€€€€ˆ½…ÑÑ•µÁÑÌˆ°(€€€€€€€€€€€¡•…‘•ÉÌõÍ•±˜¹}¡•…‘•ÉÍ}™½È à¤°(€€€€€€€€€€€©Í½¹}‰½‘äõì‰ÕÍ•É}¥ˆè€à°€‰ÅÕ•ÍÑ¥½¹}¥ˆè€ÄÈ°€‰ÍÕ‰µ¥ÑÑ•‘}…¹ÍÝ•É}Ñ•áÐˆè€‰QÉäÑ¼É•…¥Ð‰ô°(€€€€€€€€¤(€€€€€€€½ÉÁ¡…¹}…ÑÑ•µÁÐ€ô}É•ÅÕ•ÍÐ (€€€€€€€€€€€Í•±˜¹…ÁÀ°(€€€€€€€€€€€€‰A=MPˆ°(€€€€€€€€€€€€ˆ½…ÑÑ•µÁÑÌˆ°(€€€€€€€€€€€¡•…‘•ÉÌõÍ•±˜¹}¡•…‘•ÉÍ}™½È Ü¤°(€€€€€€€€€€€©Í½¹}‰½‘äõì‰ÕÍ•É}¥ˆè€Ü°€‰ÅÕ•ÍÑ¥½¹}¥ˆè€ÄÌ°€‰ÍÕ‰µ¥ÑÑ•‘}…¹ÍÝ•É}Ñ•áÐˆè€‰9¼½Ý¹•È‰ô°(€€€€€€€€¤(€€€€€€€…µ‰¥Õ½ÕÍ}½Ý¹•É}…ÑÑ•µÁÐ€ô}É•ÅÕ•ÍÐ (€€€€€€€€€€€Í•±˜¹…ÁÀ°(€€€€€€€€€€€€‰A=MPˆ°(€€€€€€€€€€€€ˆ½…ÑÑ•µÁÑÌˆ°(€€€€€€€€€€€¡•…‘•ÉÌõÍ•±˜¹}¡•…‘•ÉÍ}™½È Ü¤°(€€€€€€€€€€€©Í½¹}‰½‘äõì‰ÕÍ•É}¥ˆè€Ü°€‰ÅÕ•ÍÑ¥½¹}¥ˆè€ÄÔ°€‰ÍÕ‰µ¥ÑÑ•‘}…¹ÍÝ•É}Ñ•áÐˆè€‰µ‰¥Õ½ÕÌ½Ý¹•È‰ô°(€€€€€€€€¤(€€€€€€€Í•±˜¹…ÍÍ•ÉÑÅÕ…°¡½Ý¹•É}…ÑÑ•µÁÐ¹ÍÑ…ÑÕÍ}½‘”°€ÈÀÄ¤(€€€€€€€Í•±˜¹…ÍÍ•ÉÑÅÕ…°¡½Ñ¡•É}…ÑÑ•µÁÐ¹ÍÑ…ÑÕÍ}½‘”°€ÐÀÐ¤(€€€€€€€Í•±˜¹…ÍÍ•ÉÑÅÕ…°¡½ÉÁ¡…¹}…ÑÑ•µÁÐ¹ÍÑ…ÑÕÍ}½‘”°€ÐÀÐ¤(€€€€€€€Í•±˜¹…ÍÍ•ÉÑÅÕ…°¡…µ‰¥Õ½ÕÍ}½Ý¹•É}…ÑÑ•µÁÐ¹ÍÑ…ÑÕÍ}½‘”°€ÐÀÐ¤((€€€€€€€½Ý¹•É}Í•ÍÍ¥½¸€ô}É•ÅÕ•ÍÐ (€€€€€€€€€€€Í•±˜¹…ÁÀ°(€€€€€€€€€€€€‰A=MPˆ°(€€€€€€€€€€€€ˆ½ÁÉ…Ñ¥”½Í•ÍÍ¥½¹Ìˆ°(€€€€€€€€€€€¡•…‘•ÉÌõÍ•±˜¹}¡•…‘•ÉÍ}™½È Ü¤°(€€€€€€€€€€€©Í½¹}‰½‘äõì‰ÕÍ•É}¥ˆè€Ü°€‰ÍÕ‰©•Ðˆè€ˆäØÄàˆ°€‰ÅÕ•ÍÑ¥½¹}¥‘ÌˆèlÄÉuô°(€€€€€€€€¤(€€€€€€€½Ñ¡•É}Í•ÍÍ¥½¸€ô}É•ÅÕ•ÍÐ (€€€€€€€€€€€Í•±˜¹…ÁÀ°(€€€€€€€€€€€€‰A=MPˆ°(€€€€€€€€€€€€ˆ½ÁÉ…Ñ¥”½Í•ÍÍ¥½¹Ìˆ°(€€€€€€€€€€€¡•…‘•ÉÌõÍ•±˜¹}¡•…‘•ÉÍ}™½È à¤°(€€€€€€€€€€€©Í½¹}‰½‘äõì‰ÕÍ•É}¥ˆè€à°€‰ÍÕ‰©•Ðˆè€ˆäØÄàˆ°€‰ÅÕ•ÍÑ¥½¹}¥‘ÌˆèlÄÉuô°(€€€€€€€€¤(€€€€€€€½ÉÁ¡…¹}Í•ÍÍ¥½¸€ô}É•ÅÕ•ÍÐ (€€€€€€€€€€€Í•±˜¹…ÁÀ°(€€€€€€€€€€€€‰A=MPˆ°(€€€€€€€€€€€€ˆ½ÁÉ…Ñ¥”½Í•ÍÍ¥½¹Ìˆ°(€€€€€€€€€€€¡•…‘•ÉÌõÍ•±˜¹}¡•…‘•ÉÍ}™½È Ü¤°(€€€€€€€€€€€©Í½¹}‰½‘äõì‰ÕÍ•É}¥ˆè€Ü°€‰ÍÕ‰©•Ðˆè€ˆäØÄàˆ°€‰ÅÕ•ÍÑ¥½¹}¥‘ÌˆèlÄÍuô°(€€€€€€€€¤(€€€€€€€…µ‰¥Õ½ÕÍ}½Ý¹•É}Í•ÍÍ¥½¸€ô}É•ÅÕ•ÍÐ (€€€€€€€€€€€Í•±˜¹…ÁÀ°(€€€€€€€€€€€€‰A=MPˆ°(€€€€€€€€€€€€ˆ½ÁÉ…Ñ¥”½Í•ÍÍ¥½¹Ìˆ°(€€€€€€€€€€€¡•…‘•ÉÌõÍ•±˜¹}¡•…‘•ÉÍ}™½È Ü¤°(€€€€€€€€€€€©Í½¹}‰½‘äõì‰ÕÍ•É}¥ˆè€Ü°€‰ÍÕ‰©•Ðˆè€ˆäØÄàˆ°€‰ÅÕ•ÍÑ¥½¹}¥‘ÌˆèlÄÕuô°(€€€€€€€€¤(€€€€€€€Í•±˜¹…ÍÍ•ÉÑÅÕ…°¡½Ý¹•É}Í•ÍÍ¥½¸¹ÍÑ…ÑÕÍ}½‘”°€ÈÀÄ¤(€€€€€€€Í•±˜¹…ÍÍ•ÉÑÅÕ…°¡½Ñ¡•É}Í•ÍÍ¥½¸¹ÍÑ…ÑÕÍ}½‘”°€ÐÈÈ¤(€€€€€€€Í•±˜¹…ÍÍ•ÉÑÅÕ…°¡½ÉÁ¡…¹}Í•ÍÍ¥½¸¹ÍÑ…ÑÕÍ}½‘”°€ÐÈÈ¤(€€€€€€€Í•±˜¹…ÍÍ•ÉÑÅÕ…°¡…µ‰¥Õ½ÕÍ}½Ý¹•É}Í•ÍÍ¥½¸¹ÍÑ…ÑÕÍ}½‘”°€ÐÈÈ¤((€€€‘•˜Ñ•ÍÑ}ÁÉ¥Ù…å}•áÁ½ÉÑ}¥¹±Õ‘•Í}½¹±å}Ñ¡•}½Ý¹•ÉÍ}•¹•É…Ñ•‘}½¹Ñ•¹Ð¡Í•±˜¤€´ø9½¹”è(€€€€€€€Í•±˜¹}Í••‘}•¹•É…Ñ•‘}ÅÕ•ÍÑ¥½¸ (€€€€€€€€€€€ÕÍ•É}¥ôÜ°(€€€€€€€€€€€ÅÕ•ÍÑ¥½¹}¥ôÄÈ°(€€€€€€€€€€€É…Ý}Ñ•áÐô‰AÉ¥Ù…Ñ”ÅÕ•ÍÑ¥½¸™½ÈÍÑÕ‘•¹Ð€Üˆ°(€€€€€€€€¤(€€€€€€€Í•±˜¹}Í••‘}•¹•É…Ñ•‘}ÅÕ•ÍÑ¥½¸ (€€€€€€€€€€€ÕÍ•É}¥ôà°(€€€€€€€€€€€ÅÕ•ÍÑ¥½¹}¥ôÄÌ°(€€€€€€€€€€€É…Ý}Ñ•áÐô‰AÉ¥Ù…Ñ”ÅÕ•ÍÑ¥½¸™½ÈÍÑÕ‘•¹Ð€àˆ°(€€€€€€€€¤(€€€€€€€Í•±˜¹}Í••‘}•¹•É…Ñ•‘}ÅÕ•ÍÑ¥½¸ (€€€€€€€€€€€ÕÍ•É}¥ôÜ°(€€€€€€€€€€€ÅÕ•ÍÑ¥½¹}¥ôÄÐ°(€€€€€€€€€€€É…Ý}Ñ•áÐô‰µ‰¥Õ½ÕÍ±ä½Ý¹•ÅÕ•ÍÑ¥½¸ˆ°(€€€€€€€€¤(€€€€€€€Ý¥Ñ M•ÍÍ¥½¸¡Í•±˜¹•¹¥¹”¤…ÌÍ•ÍÍ¥½¸è(€€€€€€€€€€€ÍÕ‰©•Ð€ôÍ•ÍÍ¥½¸¹Í…±…È¡Í•±•Ð¡MÕ‰©•Ð¤¹Ý¡•É”¡MÕ‰©•Ð¹½‘”€ôô€ˆäØÄàˆ¤¤(€€€€€€€€€€€…ÍÍ•ÉÐÍÕ‰©•Ð¥Ì¹½Ð9½¹”(€€€€€€€€€€€½Ñ¡•É}Á…Á•È€ôA…Á•È¡ÕÍ•É}¥ôà°ÍÕ‰©•Ñ}¥õÍÕ‰©•Ð¹¥°µ½‘”ô‰Ý•…­}ÍÁ½Ðˆ¤(€€€€€€€€€€€Í•ÍÍ¥½¸¹…‘¡½Ñ¡•É}Á…Á•È¤(€€€€€€€€€€€Í•ÍÍ¥½¸¹™±ÕÍ  ¤(€€€€€€€€€€€Í•ÍÍ¥½¸¹…‘ (€€€€€€€€€€€€€€€A…Á•ÉEÕ•ÍÑ¥½¸ (€€€€€€€€€€€€€€€€€€€Á…Á•É}¥õ½Ñ¡•É}Á…Á•È¹¥°(€€€€€€€€€€€€€€€€€€€ÅÕ•ÍÑ¥½¹}¥ôÄÐ°(€€€€€€€€€€€€€€€€€€€Á½Í¥Ñ¥½¸ôÄ°(€€€€€€€€€€€€€€€€€€€Í½ÕÉ•}ÑåÁ”ô‰…¥}•¹•É…Ñ•ˆ°(€€€€€€€€€€€€€€€€¤(€€€€€€€€€€€€¤(€€€€€€€€€€€Í•ÍÍ¥½¸¹½µµ¥Ð ¤((€€€€€€€É•ÍÁ½¹Í”€ô}É•ÅÕ•ÍÐ (€€€€€€€€€€€Í•±˜¹…ÁÀ°(€€€€€€€€€€€€‰Pˆ°(€€€€€€€€€€€€ˆ½ÁÉ¥Ù…ä½•áÁ½ÉÐˆ°(€€€€€€€€€€€¡•…‘•ÉÌõÍ•±˜¹}¡•…‘•ÉÍ}™½È Ü¤°(€€€€€€€€¤(€€€€€€€Í•±˜¹…ÍÍ•ÉÑÅÕ…°¡É•ÍÁ½¹Í”¹ÍÑ…ÑÕÍ}½‘”°€ÈÀÀ¤(€€€€€€€Á…Á•É}ÅÕ•ÍÑ¥½¹Ì€ôÉ•ÍÁ½¹Í”¹©Í½¸ ¥l‰É•½É‘Ì‰ul‰Á…Á•É}ÅÕ•ÍÑ¥½¹Ì‰t(€€€€€€€•áÁ½ÉÑ•‘}‰å}ÅÕ•ÍÑ¥½¸€ôíÉ½Ýl‰ÅÕ•ÍÑ¥½¹}¥‰tèÉ½Ü™½ÈÉ½Ü¥¸Á…Á•É}ÅÕ•ÍÑ¥½¹Íô(€€€€€€€Í•±˜¹…ÍÍ•ÉÑÅÕ…°¡Í•Ð¡•áÁ½ÉÑ•‘}‰å}ÅÕ•ÍÑ¥½¸¤°ìÄÈ°€ÄÑô¤(€€€€€€€Í•±˜¹…ÍÍ•ÉÑÅÕ…° (€€€€€€€€€€€•áÁ½ÉÑ•‘}‰å}ÅÕ•ÍÑ¥½¹lÄÉul‰•¹•É…Ñ•‘}½¹Ñ•¹Ð‰t°(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€€‰É…Ý}Ñ•áÐˆè€‰AÉ¥Ù…Ñ”ÅÕ•ÍÑ¥½¸™½ÈÍÑÕ‘•¹Ð€Üˆ°(€€€€€€€€€€€€€€€€‰µ…É­Ìˆè€È°(€€€€€€€€€€€€€€€€‰µ…É­}Í¡•µ•}Á½¥¹ÑÌˆèl(€€€€€€€€€€€€€€€€€€€ì‰Á½¥¹Ñ}Ñ•áÐˆè€‰AÉ¥Ù…Ñ”µ…É¬Á½¥¹Ð™½È€Üˆ°€‰µ…É­Í}Ù…±Õ”ˆè€Åô(€€€€€€€€€€€€€€€t°(€€€€€€€€€€€ô°(€€€€€€€€¤(€€€€€€€Í•±˜¹…ÍÍ•ÉÑ%Í9½¹”¡•áÁ½ÉÑ•‘}‰å}ÅÕ•ÍÑ¥½¹lÄÑul‰•¹•É…Ñ•‘}½¹Ñ•¹Ð‰t¤(€€€€€€€Í•±˜¹…ÍÍ•ÉÑÅÕ…° (€€€€€€€€€€€•áÁ½ÉÑ•‘}‰å}ÅÕ•ÍÑ¥½¹lÄÑul‰•¹•É…Ñ•‘}½¹Ñ•¹Ñ}ÍÑ…ÑÕÌ‰t°(€€€€€€€€€€€€‰Õ¹…Ù…¥±…‰±•}…µ‰¥Õ½ÕÍ}½É}µ¥ÍÍ¥¹}½Ý¹•Èˆ°(€€€€€€€€¤(€€€€€€€Í•±˜¹…ÍÍ•ÉÑ9½Ñ%¸ ‰AÉ¥Ù…Ñ”ÅÕ•ÍÑ¥½¸™½ÈÍÑÕ‘•¹Ð€àˆ°©Í½¸¹‘ÕµÁÌ¡Á…Á•É}ÅÕ•ÍÑ¥½¹Ì¤¤(€€€€€€€Í•±˜¹…ÍÍ•ÉÑ9½Ñ%¸ ‰AÉ¥Ù…Ñ”µ…É¬Á½¥¹Ð™½È€àˆ°©Í½¸¹‘ÕµÁÌ¡Á…Á•É}ÅÕ•ÍÑ¥½¹Ì¤¤((€€€‘•˜Ñ•ÍÑ}…½Õ¹Ñ}‘•±•Ñ¥½¹}•É…Í•Í}½Ý¹•‘}•¹•É…Ñ•‘}½¹Ñ•¹Ñ}…¹‘}É•‘…ÑÍ}É•™•É•¹•‘}½¹Ñ•¹Ð¡Í•±˜¤€´ø9½¹”è(€€€€€€€Í•±˜¹}Í••‘}•¹•É…Ñ•‘}ÅÕ•ÍÑ¥½¸ (€€€€€€€€€€€ÕÍ•É}¥ôÜ°(€€€€€€€€€€€ÅÕ•ÍÑ¥½¹}¥ôÄÈ°(€€€€€€€€€€€É…Ý}Ñ•áÐô‰•±•Ñ”Ñ¡¥ÌÁÉ¥Ù…Ñ”ÅÕ•ÍÑ¥½¸ˆ°(€€€€€€€€¤(€€€€€€€Í•±˜¹}Í••‘}•¹•É…Ñ•‘}ÅÕ•ÍÑ¥½¸ (€€€€€€€€€€€ÕÍ•É}¥ôà°(€€€€€€€€€€€ÅÕ•ÍÑ¥½¹}¥ôÄÌ°(€€€€€€€€€€€É…Ý}Ñ•áÐô‰-••ÀÑ¡”½Ñ¡•ÈÍÑÕ‘•¹ÐÌÁÉ¥Ù…Ñ”ÅÕ•ÍÑ¥½¸ˆ°(€€€€€€€€¤(€€€€€€€Í•±˜¹}Í••‘}•¹•É…Ñ•‘}ÅÕ•ÍÑ¥½¸ (€€€€€€€€€€€ÕÍ•É}¥ôÜ°(€€€€€€€€€€€ÅÕ•ÍÑ¥½¹}¥ôÄÐ°(€€€€€€€€€€€É…Ý}Ñ•áÐô‰I•‘…ÐÑ¡¥ÌÉ½ÍÌµÉ•™•É•¹•ÅÕ•ÍÑ¥½¸ˆ°(€€€€€€€€¤(€€€€€€€Ý¥Ñ M•ÍÍ¥½¸¡Í•±˜¹•¹¥¹”¤…ÌÍ•ÍÍ¥½¸è(€€€€€€€€€€€Í•ÍÍ¥½¸¹…‘ (€€€€€€€€€€€€€€€ÑÑ•µÁÐ (€€€€€€€€€€€€€€€€€€€ÕÍ•É}¥ôà°(€€€€€€€€€€€€€€€€€€€ÅÕ•ÍÑ¥½¹}¥ôÄÐ°(€€€€€€€€€€€€€€€€€€€ÍÕ‰µ¥ÑÑ•‘}…¹ÍÝ•É}Ñ•áÐô‰1•…äÉ½ÍÌµ½Ý¹•È…¹ÍÝ•Èˆ°(€€€€€€€€€€€€€€€€¤(€€€€€€€€€€€€¤(€€€€€€€€€€€Í•ÍÍ¥½¸¹½µµ¥Ð ¤((€€€€€€€É•ÍÁ½¹Í”€ô}É•ÅÕ•ÍÐ (€€€€€€€€€€€Í•±˜¹…ÁÀ°(€€€€€€€€€€€€‰1Qˆ°(€€€€€€€€€€€€ˆ½ÁÉ¥Ù…ä½…½Õ¹Ðˆ°(€€€€€€€€€€€¡•…‘•ÉÌõÍ•±˜¹}¡•…‘•ÉÍ}™½È Ü¤°(€€€€€€€€€€€©Í½¹}‰½‘äõì‰½¹™¥Éµ…Ñ¥½¸ˆè€‰1Q5dQ‰ô°(€€€€€€€€¤(€€€€€€€Í•±˜¹…ÍÍ•ÉÑÅÕ…°¡É•ÍÁ½¹Í”¹ÍÑ…ÑÕÍ}½‘”°€ÈÀÐ¤((€€€€€€€Ý¥Ñ M•ÍÍ¥½¸¡Í•±˜¹•¹¥¹”¤…ÌÍ•ÍÍ¥½¸è(€€€€€€€€€€€Í•±˜¹…ÍÍ•ÉÑ%Í9½¹”¡Í•ÍÍ¥½¸¹•Ð¡EÕ•ÍÑ¥½¸°€ÄÈ¤¤(€€€€€€€€€€€½Ñ¡•É}½Ý¹•É}ÅÕ•ÍÑ¥½¸€ôÍ•ÍÍ¥½¸¹•Ð¡EÕ•ÍÑ¥½¸°€ÄÌ¤(€€€€€€€€€€€Í•±˜¹…ÍÍ•ÉÑ%Í9½Ñ9½¹”¡½Ñ¡•É}½Ý¹•É}ÅÕ•ÍÑ¥½¸¤(€€€€€€€€€€€Í•±˜¹…ÍÍ•ÉÑÅÕ…°¡½Ñ¡•É}½Ý¹•É}ÅÕ•ÍÑ¥½¸¹É…Ý}Ñ•áÐ°€‰-••ÀÑ¡”½Ñ¡•ÈÍÑÕ‘•¹ÐÌÁÉ¥Ù…Ñ”ÅÕ•ÍÑ¥½¸ˆ¤(€€€€€€€€€€€É•™•É•¹•‘}ÅÕ•ÍÑ¥½¸€ôÍ•ÍÍ¥½¸¹•Ð¡EÕ•ÍÑ¥½¸°€ÄÐ¤(€€€€€€€€€€€Í•±˜¹…ÍÍ•ÉÑ%Í9½Ñ9½¹”¡É•™•É•¹•‘}ÅÕ•ÍÑ¥½¸¤(€€€€€€€€€€€Í•±˜¹…ÍÍ•ÉÑÅÕ…°¡É•™•É•¹•‘}ÅÕ•ÍÑ¥½¸¹É…Ý}Ñ•áÐ°€ˆˆ¤(€€€€€€€€€€€Í•±˜¹…ÍÍ•ÉÑ%Í9½¹”¡É•™•É•¹•‘}ÅÕ•ÍÑ¥½¸¹Ñ½Á¥Œ¤(€€€€€€€€€€€Í•±˜¹…ÍÍ•ÉÑ%Í9½¹”¡É•™•É•¹•‘}ÅÕ•ÍÑ¥½¸¹µ…É­Ì¤(€€€€€€€€€€€Í•±˜¹…ÍÍ•ÉÑÅÕ…° (€€€€€€€€€€€€€€€Í•ÍÍ¥½¸¹Í…±…È (€€€€€€€€€€€€€€€€€€€Í•±•Ð¡™Õ¹Œ¹½Õ¹Ð ¤¤¹Í•±•Ñ}™É½´¡5…É­M¡•µ•A½¥¹Ð¤¹Ý¡•É” (€€€€€€€€€€€€€€€€€€€€€€€5…É­M¡•µ•A½¥¹Ð¹ÅÕ•ÍÑ¥½¹}¥¹¥¹|¡lÄÈ°€ÄÑt¤(€€€€€€€€€€€€€€€€€€€€¤(€€€€€€€€€€€€€€€€¤°(€€€€€€€€€€€€€€€€À°(€€€€€€€€€€€€¤(€€€€€€€€€€€Í•±˜¹…ÍÍ•ÉÑÅÕ…° (€€€€€€€€€€€€€€€Í•ÍÍ¥½¸¹Í…±…È (€€€€€€€€€€€€€€€€€€€Í•±•Ð¡™Õ¹Œ¹½Õ¹Ð ¤¤¹Í•±•Ñ}™É½´¡5…É­M¡•µ•A½¥¹Ð¤¹Ý¡•É” (€€€€€€€€€€€€€€€€€€€€€€€5…É­M¡•µ•A½¥¹Ð¹ÅÕ•ÍÑ¥½¹}¥€ôô€ÄÌ(€€€€€€€€€€€€€€€€€€€€¤(€€€€€€€€€€€€€€€€¤°(€€€€€€€€€€€€€€€€Ä°(€€€€€€€€€€€€¤(€€€€€€€€€€€Í•±˜¹…ÍÍ•ÉÑÅÕ…°¡Í•ÍÍ¥½¸¹•Ð¡EÕ•ÍÑ¥½¸°€ÄÄ¤¹É…Ý}Ñ•áÐ°€‰áÁ±…¥¸½¹”‰•¹•™¥Ð½˜…¡”µ•µ½Éä¸ˆ¤((€€€‘•˜Ñ•ÍÑ}•µ¥¹¥}É…‘¥¹}Ù…±¥‘…Ñ•Í}©Í½¹}…¹‘}É•ÑÉ¥•Í}½¹”¡Í•±˜¤€´ø9½¹”è(€€€€€€€µ½‘•°€ô}…­••µ¥¹¥5½‘•° (€€€€€€€€€€€l(€€€€€€€€€€€€€€€€‰¹½Ð©Í½¸ˆ°(€€€€€€€€€€€€€€€€©Í½¹q¹ì‰Á½¥¹ÑÍ}¡¥Ðˆél‰UÍ•Ì„…¡”‰t°‰Á½¥¹ÑÍ}µ¥ÍÍ•ˆémt°‰µ…É­Í}•…É¹•ˆèÄ°‰™••‘‰…¬ˆè‰½ÉÉ•Ð¸‰õq¹€œ°(€€€€€€€€€€€t(€€€€€€€€¤((€€€€€€€É•ÍÕ±Ð€ôÉ…‘•}…¹ÍÝ•È (€€€€€€€€€€€ÅÕ•ÍÑ¥½¹}Ñ•áÐô‰áÁ±…¥¸…¡”µ•µ½Éä¸ˆ°(€€€€€€€€€€€µ…É­}Í¡•µ•}Á½¥¹ÑÌõmì‰Á½¥¹Ñ}Ñ•áÐˆè€‰UÍ•Ì„…¡”ˆ°€‰µ…É­Í}Ù…±Õ”ˆè€Åõt°(€€€€€€€€€€€ÍÕ‰µ¥ÑÑ•‘}…¹ÍÝ•É}Ñ•áÐô‰%ÐÍÑ½É•Ì™É•ÅÕ•¹Ñ±äÕÍ•‘…Ñ„¸ˆ°(€€€€€€€€€€€µ…É­Í}Á½ÍÍ¥‰±”ôÈ°(€€€€€€€€€€€µ½‘•°õµ½‘•°°(€€€€€€€€¤((€€€€€€€Í•±˜¹…ÍÍ•ÉÑÅÕ…°¡É•ÍÕ±Ð¹µ…É­Í}•…É¹•°€Ä¤(€€€€€€€Í•±˜¹…ÍÍ•ÉÑÅÕ…°¡±•¸¡µ½‘•°¹ÁÉ½µÁÑÌ¤°€È¤(€€€€€€€Í•±˜¹…ÍÍ•ÉÑ%¸ ‰UÍ•Ì„…¡”ˆ°µ½‘•°¹ÁÉ½µÁÑÍlÁt¤((€€€‘•˜Ñ•ÍÑ}ÍÕ‰©•Ñ}…¹‘}™¥±Ñ•É•‘}ÅÕ•ÍÑ¥½¹}É•…‘Ì¡Í•±˜¤€´ø9½¹”è(€€€€€€€Ý¥Ñ M•ÍÍ¥½¸¡Í•±˜¹•¹¥¹”¤…ÌÍ•ÍÍ¥½¸è(€€€€€€€€€€€ÍÕ‰©•ÑÌ€ô±¥ÍÑ}ÍÕ‰©•ÑÌ¡Í•ÍÍ¥½¸¤(€€€€€€€€€€€ÅÕ•ÍÑ¥½¹Ì€ô±¥ÍÑ}ÅÕ•ÍÑ¥½¹Ì (€€€€€€€€€€€€€€€ÍÕ‰©•ÐôˆäØÄàˆ°(€€€€€€€€€€€€€€€Ñ½Á¥Œô‰…Ñ„É•ÁÉ•Í•¹Ñ…Ñ¥½¸ˆ°(€€€€€€€€€€€€€€€½µµ…¹‘}Ý½Éô‰áÁ±…¥¸ˆ°(€€€€€€€€€€€€€€€±¥µ¥ÐôÄÀ°(€€€€€€€€€€€€€€€Í•ÍÍ¥½¸õÍ•ÍÍ¥½¸°(€€€€€€€€€€€€¤((€€€€€€€Í•±˜¹…ÍÍ•ÉÑÅÕ…°¡ÍÕ‰©•ÑÍlÁt¹½‘”°€ˆäØÄàˆ¤(€€€€€€€Í•±˜¹…ÍÍ•ÉÑÅÕ…°¡ÅÕ•ÍÑ¥½¹ÍlÁt¹¥°€ÄÄ¤((€€€‘•˜Ñ•ÍÑ}¡…ÁÑ•É}™¥±Ñ•É}ÕÍ•Í}½¹±å}…ÁÁÉ½Ù•‘}µ…ÁÁ¥¹œ¡Í•±˜¤€´ø9½¹”è(€€€€€€€Ý¥Ñ M•ÍÍ¥½¸¡Í•±˜¹•¹¥¹”¤…ÌÍ•ÍÍ¥½¸è(€€€€€€€€€€€¡…ÁÑ•È€ôÍ•ÍÍ¥½¸¹Í…±…È¡Í•±•Ð¡ÕÉÉ¥Õ±Õµ¡…ÁÑ•È¤¤(€€€€€€€€€€€…ÍÍ•ÉÐ¡…ÁÑ•È¥Ì¹½Ð9½¹”(€€€€€€€€€€€ÅÕ•ÍÑ¥½¹Ì€ô±¥ÍÑ}ÅÕ•ÍÑ¥½¹Ì (€€€€€€€€€€€€€€€ÍÕ‰©•ÐôˆäØÄàˆ°(€€€€€€€€€€€€€€€¡…ÁÑ•É}¥õ¡…ÁÑ•È¹¥°(€€€€€€€€€€€€€€€Í•ÍÍ¥½¸õÍ•ÍÍ¥½¸°(€€€€€€€€€€€€¤((€€€€€€€Í•±˜¹…ÍÍ•ÉÑÅÕ…°¡mÅÕ•ÍÑ¥½¸¹¥™½ÈÅÕ•ÍÑ¥½¸¥¸ÅÕ•ÍÑ¥½¹Ít°lÄÅt¤((€€€‘•˜Ñ•ÍÑ}…ÑÑ•µÁÑ}¥Í}ÍÑ½É•‘}…¹‘}ÕÁ‘…Ñ•Í}µ…ÍÑ•Éä¡Í•±˜¤€´ø9½¹”è(€€€€€€€Ý¥Ñ M•ÍÍ¥½¸¡Í•±˜¹•¹¥¹”¤…ÌÍ•ÍÍ¥½¸è(€€€€€€€€€€€É•ÍÕ±Ð€ôÉ•…Ñ•}…ÑÑ•µÁÐ (€€€€€€€€€€€€€€€ÑÑ•µÁÑÉ•…Ñ” (€€€€€€€€€€€€€€€€€€€ÕÍ•É}¥ôÜ°(€€€€€€€€€€€€€€€€€€€ÅÕ•ÍÑ¥½¹}¥ôÄÄ°(€€€€€€€€€€€€€€€€€€€ÍÕ‰µ¥ÑÑ•‘}…¹ÍÝ•É}Ñ•áÐô‰%ÐÍÑ½É•Ì™É•ÅÕ•¹Ñ±äÕÍ•‘…Ñ„¸ˆ°(€€€€€€€€€€€€€€€€¤°(€€€€€€€€€€€€€€€Í•±˜¹É•ÅÕ•ÍÐ°(€€€€€€€€€€€€€€€…ÕÑ õÍ•±˜¹…ÕÑ °(€€€€€€€€€€€€€€€Í•ÍÍ¥½¸õÍ•ÍÍ¥½¸°(€€€€€€€€€€€€¤((€€€€€€€Í•±˜¹…ÍÍ•ÉÑÅÕ…°¡É•ÍÕ±Ð¹µ…É­Í}•…É¹•°€Ä¸À¤(€€€€€€€Í•±˜¹…ÍÍ•ÉÑQÉÕ”¡É•ÍÕ±Ð¹µ…ÍÑ•Éå}ÕÁ‘…Ñ•¤(€€€€€€€Í•±˜¹…ÍÍ•ÉÑÅÕ…°¡±•¸¡Í•±˜¹É…‘•È¹…±±Ì¤°€Ä¤(€€€€€€€Í•±˜¹…ÍÍ•ÉÑÅÕ…° (€€€€€€€€€€€Í•±˜¹É…‘•È¹…±±ÍlÁul‰µ…É­}Í¡•µ•}Á½¥¹ÑÌ‰t°(€€€€€€€€€€€mì‰Á½¥¹Ñ}Ñ•áÐˆè€‰UÍ•Ì„…¡”ˆ°€‰µ…É­Í}Ù…±Õ”ˆè€Åõt°(€€€€€€€€¤((€€€€€€€Ý¥Ñ M•ÍÍ¥½¸¡Í•±˜¹•¹¥¹”¤…ÌÍ•ÍÍ¥½¸è(€€€€€€€€€€€µ…ÍÑ•Éä€ô•Ñ}µ…ÍÑ•Éä¡ÕÍ•É}¥ôÜ°ÍÕ‰©•ÐôˆäØÄàˆ°…ÕÑ õÍ•±˜¹…ÕÑ °Í•ÍÍ¥½¸õÍ•ÍÍ¥½¸¤(€€€€€€€•±°€ôµ…ÍÑ•Éä¹•±±ÍlÁt(€€€€€€€Í•±˜¹…ÍÍ•ÉÑÅÕ…°¡•±°¹Ñ½Á¥Œ°€‰…Ñ„É•ÁÉ•Í•¹Ñ…Ñ¥½¸ˆ¤(€€€€€€€Í•±˜¹…ÍÍ•ÉÑÅÕ…°¡•±°¹½µµ…¹‘}Ý½É°€‰áÁ±…¥¸ˆ¤(€€€€€€€Í•±˜¹…ÍÍ•ÉÑÅÕ…°¡•±°¹Í½É”°€À¸Ô¤(€€€€€€€Í•±˜¹…ÍÍ•ÉÑQÉÕ”¡•±°¹¡…Í}•Ù¥‘•¹”¤((€€€€€€€Ý¥Ñ M•ÍÍ¥½¸¡Í•±˜¹•¹¥¹”¤…ÌÍ•ÍÍ¥½¸è(€€€€€€€€€€€Í•±˜¹…ÍÍ•ÉÑÅÕ…°¡±•¸¡Í•ÍÍ¥½¸¹Í…±…ÉÌ¡Í•±•Ð¡ÑÑ•µÁÐ¤¤¹…±° ¤¤°€Ä¤(€€€€€€€€€€€Í•±˜¹…ÍÍ•ÉÑÅÕ…°¡±•¸¡Í•ÍÍ¥½¸¹Í…±…ÉÌ¡Í•±•Ð¡5…ÍÑ•Éä¤¤¹…±° ¤¤°€Ä¤((€€€‘•˜Ñ•ÍÑ}…ÑÑ•µÁÑ}É•©•ÑÍ}µ¥ÍÍ¥¹}µ…É­}Í¡•µ”¡Í•±˜¤€´ø9½¹”è(€€€€€€€Ý¥Ñ M•ÍÍ¥½¸¡Í•±˜¹•¹¥¹”¤…ÌÍ•ÍÍ¥½¸è(€€€€€€€€€€€ÅÕ•ÍÑ¥½¸€ôÍ•ÍÍ¥½¸¹•Ð¡EÕ•ÍÑ¥½¸°€ÄÄ¤(€€€€€€€€€€€…ÍÍ•ÉÐÅÕ•ÍÑ¥½¸¥Ì¹½Ð9½¹”(€€€€€€€€€€€ÅÕ•ÍÑ¥½¸¹µ…É­}Í¡•µ•}Á½¥¹ÑÌ¹±•…È ¤(€€€€€€€€€€€Í•ÍÍ¥½¸¹½µµ¥Ð ¤((€€€€€€€Ý¥Ñ M•ÍÍ¥½¸¡Í•±˜¹•¹¥¹”¤…ÌÍ•ÍÍ¥½¸è(€€€€€€€€€€€Ý¥Ñ Í•±˜¹…ÍÍ•ÉÑI…¥Í•Ì¡!QQAá•ÁÑ¥½¸¤…ÌÉ…¥Í•è(€€€€€€€€€€€€€€€É•…Ñ•}…ÑÑ•µÁÐ (€€€€€€€€€€€€€€€€€€€ÑÑ•µÁÑÉ•…Ñ” (€€€€€€€€€€€€€€€€€€€€€€€ÕÍ•É}¥ôÜ°(€€€€€€€€€€€€€€€€€€€€€€€ÅÕ•ÍÑ¥½¹}¥ôÄÄ°(€€€€€€€€€€€€€€€€€€€€€€€ÍÕ‰µ¥ÑÑ•‘}…¹ÍÝ•É}Ñ•áÐô‰…¹ÍÝ•Èˆ°(€€€€€€€€€€€€€€€€€€€€¤°(€€€€€€€€€€€€€€€€€€€Í•±˜¹É•ÅÕ•ÍÐ°(€€€€€€€€€€€€€€€€€€€…ÕÑ õÍ•±˜¹…ÕÑ °(€€€€€€€€€€€€€€€€€€€Í•ÍÍ¥½¸õÍ•ÍÍ¥½¸°(€€€€€€€€€€€€€€€€¤(€€€€€€€Í•±˜¹…ÍÍ•ÉÑÅÕ…°¡É…¥Í•¹•á•ÁÑ¥½¸¹ÍÑ…ÑÕÍ}½‘”°€ÐÈÈ¤(()¥˜}}¹…µ•}|€ôô€‰}}µ…¥¹}|ˆè(€€€Õ¹¥ÑÑ•ÍÐ¹µ…¥¸ ¤(
