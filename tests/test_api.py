@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import unittest
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import patch
 from urllib.parse import urlsplit
@@ -26,6 +27,7 @@ from src.db.models import (
     DiagnosticResponse,
     MarkSchemePoint,
     Mastery,
+    MistakeReview,
     Paper,
     PaperQuestion,
     PracticeAnswer,
@@ -289,6 +291,14 @@ class ApiTests(unittest.TestCase):
                 ]
             )
             session.add(
+                MistakeReview(
+                    user_id=user_id,
+                    original_attempt_id=attempt.id,
+                    source="user_confirmed",
+                    state="open",
+                )
+            )
+            session.add(
                 Mastery(
                     user_id=user_id,
                     topic="Data representation",
@@ -503,9 +513,10 @@ class ApiTests(unittest.TestCase):
             {
                 "attempts", "mastery", "papers", "paper_questions", "diagnostic_evidence",
                 "recommendations", "diagnostics", "diagnostic_responses", "practice_sessions",
-                "practice_answers",
+                "practice_answers", "mistake_reviews",
             },
         )
+        self.assertEqual(exported["records"]["mistake_reviews"][0]["state"], "open")
         self.assertEqual(exported["records"]["attempts"][0]["submitted_answer_text"], "private answer for 7")
         self.assertEqual(exported["records"]["diagnostic_responses"][0]["answer_text"], "diagnostic answer for 7")
         self.assertNotIn("raw_text", json.dumps(exported))
@@ -562,7 +573,7 @@ class ApiTests(unittest.TestCase):
         with Session(self.engine) as session:
             self.assertIsNone(session.get(User, 7))
             self.assertIsNotNone(session.get(User, 8))
-            for model in (Attempt, Mastery, Paper, Diagnostic, DiagnosticEvidence, Recommendation, PracticeSession):
+            for model in (Attempt, Mastery, Paper, Diagnostic, DiagnosticEvidence, Recommendation, PracticeSession, MistakeReview):
                 self.assertEqual(
                     session.scalar(select(func.count()).select_from(model).where(model.user_id == 7)),
                     0,
@@ -989,6 +1000,362 @@ class ApiTests(unittest.TestCase):
                     session=session,
                 )
         self.assertEqual(raised.exception.status_code, 422)
+
+    def _seed_mistake_attempt(
+        self,
+        *,
+        user_id: int,
+        question_id: int,
+        marks_earned: float | None,
+        marks_possible: float | None,
+        grading_status: str = "graded",
+        answer_text: str = "Synthetic original answer",
+    ) -> int:
+        with Session(self.engine) as session:
+            subject = session.scalar(select(Subject).where(Subject.code == "9618"))
+            assert subject is not None
+            if session.get(Question, question_id) is None:
+                session.add(
+                    Question(
+                        id=question_id,
+                        subject_id=subject.id,
+                        paper="p1",
+                        year=2025,
+                        session="Synthetic fixture",
+                        variant="12",
+                        question_number=f"SYN-{question_id}",
+                        sub_label="",
+                        topic="Synthetic review topic",
+                        subtopic="Eligibility fixture",
+                        command_word="Explain",
+                        marks=2,
+                        raw_text=f"Synthetic 9618 fixture question {question_id}.",
+                    )
+                )
+            session.flush()
+            attempt = Attempt(
+                user_id=user_id,
+                question_id=question_id,
+                submitted_answer_text=answer_text,
+                points_awarded={
+                    "points_hit": ["Synthetic point"],
+                    "points_missed": ["Synthetic missed point"],
+                    "feedback": "Synthetic previous feedback.",
+                },
+                marks_earned=marks_earned,
+                marks_possible=marks_possible,
+                grading_status=grading_status,
+                attempted_at=datetime.now(timezone.utc),
+            )
+            session.add(attempt)
+            session.commit()
+            return attempt.id
+
+    def test_mistake_queue_uses_scored_misses_or_explicit_owner_confirmation(self) -> None:
+        missed = self._seed_mistake_attempt(
+            user_id=7, question_id=21, marks_earned=1, marks_possible=2, answer_text="Do not reveal this answer"
+        )
+        full_credit = self._seed_mistake_attempt(user_id=7, question_id=22, marks_earned=2, marks_possible=2)
+        unscored = self._seed_mistake_attempt(user_id=7, question_id=23, marks_earned=None, marks_possible=None)
+        disputed = self._seed_mistake_attempt(
+            user_id=7, question_id=24, marks_earned=0, marks_possible=2, grading_status="disputed"
+        )
+        other_owner = self._seed_mistake_attempt(
+            user_id=8, question_id=25, marks_earned=0, marks_possible=2
+        )
+
+        queue = _request(
+            self.app,
+            "GET",
+            "/mistakes/queue/7?subject=9618",
+            headers=self._headers_for(7),
+        )
+        self.assertEqual(queue.status_code, 200)
+        self.assertEqual([item["original_attempt_id"] for item in queue.json()["items"]], [missed])
+        self.assertNotIn("Do not reveal this answer", json.dumps(queue.json()))
+        self.assertNotIn("Synthetic previous feedback", json.dumps(queue.json()))
+
+        wrong_owner_queue = _request(
+            self.app,
+            "GET",
+            "/mistakes/queue/8?subject=9618",
+            headers=self._headers_for(7),
+        )
+        self.assertEqual(wrong_owner_queue.status_code, 403)
+        wrong_owner_confirm = _request(
+            self.app,
+            "POST",
+            "/mistakes/reviews/confirm",
+            headers=self._headers_for(7),
+            json_body={"user_id": 7, "attempt_id": other_owner},
+        )
+        self.assertEqual(wrong_owner_confirm.status_code, 404)
+
+        confirmed = _request(
+            self.app,
+            "POST",
+            "/mistakes/reviews/confirm",
+            headers=self._headers_for(7),
+            json_body={"user_id": 7, "attempt_id": full_credit},
+        )
+        self.assertEqual(confirmed.status_code, 201)
+        self.assertEqual(confirmed.json()["source"], "user_confirmed")
+        after_confirmation = _request(
+            self.app,
+            "GET",
+            "/mistakes/queue/7?subject=9618",
+            headers=self._headers_for(7),
+        )
+        self.assertEqual(
+            {item["original_attempt_id"] for item in after_confirmation.json()["items"]},
+            {missed, full_credit},
+        )
+        self.assertNotIn(unscored, {item["original_attempt_id"] for item in after_confirmation.json()["items"]})
+        self.assertNotIn(disputed, {item["original_attempt_id"] for item in after_confirmation.json()["items"]})
+
+    def test_mistake_retry_is_idempotent_append_only_and_reveals_history_after_retry(self) -> None:
+        original_id = self._seed_mistake_attempt(
+            user_id=7, question_id=31, marks_earned=1, marks_possible=2, answer_text="Original answer hidden first"
+        )
+        create_payload = {
+            "user_id": 7,
+            "subject": "9618",
+            "attempt_ids": [original_id],
+            "idempotency_key": "review-session-7-1",
+        }
+        created = _request(
+            self.app,
+            "POST",
+            "/mistakes/sessions",
+            headers=self._headers_for(7),
+            json_body=create_payload,
+        )
+        self.assertEqual(created.status_code, 201)
+        session_id = created.json()["id"]
+        item = created.json()["items"][0]
+        review_id = item["review_id"]
+        self.assertIn("Synthetic 9618 fixture question 31", item["question"]["raw_text"])
+        self.assertNotIn("Original answer hidden first", json.dumps(created.json()))
+        self.assertNotIn("Synthetic previous feedback", json.dumps(created.json()))
+        cross_owner_session = _request(
+            self.app,
+            "POST",
+            "/mistakes/sessions",
+            headers=self._headers_for(8),
+            json_body={
+                "user_id": 8,
+                "subject": "9618",
+                "attempt_ids": [original_id],
+                "idempotency_key": "cross-owner-session",
+            },
+        )
+        self.assertEqual(cross_owner_session.status_code, 404)
+        cross_owner_read = _request(
+            self.app,
+            "GET",
+            f"/mistakes/sessions/{session_id}?user_id=8",
+            headers=self._headers_for(8),
+        )
+        self.assertEqual(cross_owner_read.status_code, 403)
+        hidden = _request(
+            self.app,
+            "GET",
+            f"/mistakes/sessions/{session_id}/items/{review_id}/reveal?user_id=7",
+            headers=self._headers_for(7),
+        )
+        self.assertEqual(hidden.status_code, 409)
+
+        active = _request(
+            self.app,
+            "GET",
+            "/mistakes/sessions/active/7?subject=9618",
+            headers=self._headers_for(7),
+        )
+        self.assertEqual(active.json()["id"], session_id)
+        duplicate_session = _request(
+            self.app,
+            "POST",
+            "/mistakes/sessions",
+            headers=self._headers_for(7),
+            json_body=create_payload,
+        )
+        self.assertEqual(duplicate_session.status_code, 201)
+        self.assertEqual(duplicate_session.json()["id"], session_id)
+
+        draft = _request(
+            self.app,
+            "PUT",
+            f"/mistakes/sessions/{session_id}/answers/{review_id}",
+            headers=self._headers_for(7),
+            json_body={"user_id": 7, "answer_text": "My fresh retry draft"},
+        )
+        self.assertEqual(draft.status_code, 200)
+        self.assertEqual(draft.json()["items"][0]["answer_text"], "My fresh retry draft")
+        self.assertNotIn("Original answer hidden first", json.dumps(draft.json()))
+
+        retry_payload = {
+            "user_id": 7,
+            "answer_text": "A new answer, not sent to the grader",
+            "self_assessment": "partly",
+            "idempotency_key": "review-retry-7-1",
+        }
+        retry_path = f"/mistakes/sessions/{session_id}/items/{review_id}/retry"
+        retry = _request(
+            self.app,
+            "POST",
+            retry_path,
+            headers=self._headers_for(7),
+            json_body=retry_payload,
+        )
+        duplicate_retry = _request(
+            self.app,
+            "POST",
+            retry_path,
+            headers=self._headers_for(7),
+            json_body=retry_payload,
+        )
+        self.assertEqual(retry.status_code, 201)
+        self.assertEqual(duplicate_retry.json()["attempt_id"], retry.json()["attempt_id"])
+        self.assertEqual(retry.json()["grading_status"], "self_assessed")
+        self.assertEqual(self.grader.calls, [])
+        conflict = _request(
+            self.app,
+            "POST",
+            retry_path,
+            headers=self._headers_for(7),
+            json_body={**retry_payload, "answer_text": "Changed payload"},
+        )
+        self.assertEqual(conflict.status_code, 409)
+
+        with Session(self.engine) as session:
+            original = session.get(Attempt, original_id)
+            retry_row = session.get(Attempt, retry.json()["attempt_id"])
+            self.assertIsNotNone(original)
+            self.assertIsNotNone(retry_row)
+            assert original is not None and retry_row is not None
+            self.assertEqual(original.submitted_answer_text, "Original answer hidden first")
+            self.assertEqual(original.marks_earned, 1)
+            self.assertEqual(original.points_awarded["feedback"], "Synthetic previous feedback.")
+            self.assertEqual(retry_row.retry_of_attempt_id, original_id)
+            self.assertEqual(retry_row.marks_earned, None)
+            self.assertEqual(retry_row.grading_status, "self_assessed")
+            self.assertEqual(session.scalar(select(func.count()).select_from(Attempt).where(Attempt.user_id == 7)), 2)
+
+        revealed = _request(
+            self.app,
+            "GET",
+            f"/mistakes/sessions/{session_id}/items/{review_id}/reveal?user_id=7",
+            headers=self._headers_for(7),
+        )
+        self.assertEqual(revealed.status_code, 200)
+        self.assertEqual(revealed.json()["original_answer_text"], "Original answer hidden first")
+        self.assertEqual(revealed.json()["feedback"], "Synthetic previous feedback.")
+        self.assertEqual(revealed.json()["retries"][0]["answer_text"], "A new answer, not sent to the grader")
+
+    def test_mistake_review_resolve_revisit_reopen_and_resume(self) -> None:
+        original_id = self._seed_mistake_attempt(
+            user_id=7, question_id=41, marks_earned=0, marks_possible=2
+        )
+        created = _request(
+            self.app,
+            "POST",
+            "/mistakes/sessions",
+            headers=self._headers_for(7),
+            json_body={
+                "user_id": 7,
+                "subject": "9618",
+                "attempt_ids": [original_id],
+                "idempotency_key": "review-session-7-2",
+            },
+        )
+        self.assertEqual(created.status_code, 201)
+        session_id = created.json()["id"]
+        review_id = created.json()["items"][0]["review_id"]
+        saved = _request(
+            self.app,
+            "PUT",
+            f"/mistakes/sessions/{session_id}/answers/{review_id}",
+            headers=self._headers_for(7),
+            json_body={"user_id": 7, "answer_text": "Saved before leaving"},
+        )
+        self.assertEqual(saved.status_code, 200)
+        resumed = _request(
+            self.app,
+            "GET",
+            "/mistakes/sessions/active/7?subject=9618",
+            headers=self._headers_for(7),
+        )
+        self.assertEqual(resumed.json()["id"], session_id)
+        self.assertEqual(resumed.json()["items"][0]["answer_text"], "Saved before leaving")
+
+        retry = _request(
+            self.app,
+            "POST",
+            f"/mistakes/sessions/{session_id}/items/{review_id}/retry",
+            headers=self._headers_for(7),
+            json_body={
+                "user_id": 7,
+                "answer_text": "Retry response",
+                "self_assessment": "still_unsure",
+                "idempotency_key": "review-retry-7-2",
+            },
+        )
+        self.assertEqual(retry.status_code, 201)
+        revisit = _request(
+            self.app,
+            "PATCH",
+            f"/mistakes/reviews/{review_id}",
+            headers=self._headers_for(7),
+            json_body={"user_id": 7, "state": "revisit"},
+        )
+        self.assertEqual(revisit.status_code, 200)
+        self.assertEqual(revisit.json()["state"], "revisit")
+        completed = _request(
+            self.app,
+            "POST",
+            f"/mistakes/sessions/{session_id}/submit?user_id=7",
+            headers=self._headers_for(7),
+        )
+        self.assertEqual(completed.status_code, 200)
+        self.assertEqual(completed.json()["state"], "submitted")
+        queue = _request(
+            self.app,
+            "GET",
+            "/mistakes/queue/7?subject=9618",
+            headers=self._headers_for(7),
+        )
+        self.assertEqual(queue.json()["items"][0]["state"], "revisit")
+
+        resolved = _request(
+            self.app,
+            "PATCH",
+            f"/mistakes/reviews/{review_id}",
+            headers=self._headers_for(7),
+            json_body={"user_id": 7, "state": "resolved"},
+        )
+        self.assertEqual(resolved.status_code, 200)
+        empty = _request(
+            self.app,
+            "GET",
+            "/mistakes/queue/7?subject=9618",
+            headers=self._headers_for(7),
+        )
+        self.assertEqual(empty.json()["items"], [])
+        reopened = _request(
+            self.app,
+            "PATCH",
+            f"/mistakes/reviews/{review_id}",
+            headers=self._headers_for(7),
+            json_body={"user_id": 7, "state": "reopened"},
+        )
+        self.assertEqual(reopened.json()["state"], "reopened")
+        requeued = _request(
+            self.app,
+            "GET",
+            "/mistakes/queue/7?subject=9618",
+            headers=self._headers_for(7),
+        )
+        self.assertEqual(requeued.json()["items"][0]["state"], "reopened")
 
 
 if __name__ == "__main__":

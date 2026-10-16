@@ -10,6 +10,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -302,6 +303,7 @@ class PracticeSession(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     subject_id: Mapped[int] = mapped_column(ForeignKey("subjects.id", ondelete="CASCADE"), nullable=False)
+    session_type: Mapped[str] = mapped_column(String(32), nullable=False, default="practice", server_default="practice")
     paper_id: Mapped[int | None] = mapped_column(ForeignKey("papers.id", ondelete="SET NULL"))
     recommendation_id: Mapped[int | None] = mapped_column(ForeignKey("recommendations.id", ondelete="SET NULL"))
     state: Mapped[str] = mapped_column(String(32), nullable=False, default="draft", server_default="draft")
@@ -323,14 +325,17 @@ class PracticeAnswer(Base):
     __tablename__ = "practice_answers"
     __table_args__ = (
         UniqueConstraint("session_id", "question_id", name="uq_practice_answer_question"),
+        Index("ix_practice_answers_original_attempt_id", "original_attempt_id"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     session_id: Mapped[int] = mapped_column(ForeignKey("practice_sessions.id", ondelete="CASCADE"), nullable=False)
     question_id: Mapped[int] = mapped_column(ForeignKey("questions.id", ondelete="CASCADE"), nullable=False)
+    original_attempt_id: Mapped[int | None] = mapped_column(ForeignKey("attempts.id", ondelete="SET NULL"))
     answer_text: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="draft", server_default="draft")
     attempt_id: Mapped[int | None] = mapped_column(ForeignKey("attempts.id", ondelete="SET NULL"))
+    previous_answer_revealed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     session: Mapped[PracticeSession] = relationship(back_populates="answers")
@@ -339,6 +344,10 @@ class PracticeAnswer(Base):
 
 class Attempt(Base):
     __tablename__ = "attempts"
+    __table_args__ = (
+        Index("uq_attempt_retry_submission", "user_id", "retry_submission_key", unique=True),
+        Index("ix_attempts_retry_of_attempt_id", "retry_of_attempt_id"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
@@ -354,10 +363,38 @@ class Attempt(Base):
     grading_status: Mapped[str] = mapped_column(String(32), nullable=False, default="graded", server_default="graded")
     correction_note: Mapped[str | None] = mapped_column(Text)
     corrected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    retry_of_attempt_id: Mapped[int | None] = mapped_column(ForeignKey("attempts.id", ondelete="SET NULL"))
+    retry_submission_key: Mapped[str | None] = mapped_column(String(128))
+    self_assessment: Mapped[str | None] = mapped_column(String(32))
     attempted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     user: Mapped[User] = relationship(back_populates="attempts")
     question: Mapped[Question] = relationship(back_populates="attempts")
+
+
+class MistakeReview(Base):
+    """An owner-confirmed or scored-miss review state linked to its original attempt."""
+
+    __tablename__ = "mistake_reviews"
+    __table_args__ = (
+        UniqueConstraint("user_id", "original_attempt_id", name="uq_mistake_review_owner_attempt"),
+        CheckConstraint(
+            "state IN ('open', 'revisit', 'resolved', 'reopened')",
+            name="ck_mistake_review_state",
+        ),
+        CheckConstraint(
+            "source IN ('scored_miss', 'user_confirmed')",
+            name="ck_mistake_review_source",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    original_attempt_id: Mapped[int] = mapped_column(ForeignKey("attempts.id", ondelete="CASCADE"), nullable=False)
+    state: Mapped[str] = mapped_column(String(32), nullable=False, default="open", server_default="open")
+    source: Mapped[str] = mapped_column(String(32), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
 class Mastery(Base):

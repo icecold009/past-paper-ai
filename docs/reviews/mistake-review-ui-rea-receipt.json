@@ -1,0 +1,320 @@
+{
+  "receipt_version": 1,
+  "evidence_id": "ev_c50c11e19f1fb95c01ad196a2b494991374d4e61cca553d226ad3cce170acd1a",
+  "provider": {
+    "id": "rea-playwright-browser-scenario",
+    "name": "REA Playwright browser scenario capture provider",
+    "version": "1"
+  },
+  "operation": "capture_browser_scenario",
+  "browser": {
+    "mode": "launch",
+    "process_ownership": "provider-owned",
+    "cleanup": "terminated-owned-process",
+    "product": "Chromium",
+    "version": "155.0.8059.79"
+  },
+  "scenario": {
+    "start_origin": "http://127.0.0.1:5173",
+    "action_count": 17,
+    "secret_references": [],
+    "network_content": {
+      "request_body": false,
+      "response_body": false,
+      "header_values": false
+    },
+    "event_families": [
+      "console",
+      "network",
+      "page-errors"
+    ]
+  },
+  "duration_ms": 3802,
+  "completeness": {
+    "status": "complete",
+    "equality_eligible": true,
+    "missing_sections": [],
+    "truncated_sections": []
+  },
+  "limitations": [
+    "Event sequence records provider receipt order; simultaneous browser causality is not inferred.",
+    "Network content is retained only when selected; Playwright response-body bytes are API results and are not guaranteed to match wire bytes.",
+    "Request bytes are limited to what Playwright exposes; not_exposed does not establish body absence or multipart file coverage.",
+    "Network content reads settle within 5 seconds each and the observer does not request bodies from unfinished responses.",
+    "Playwright scenario events do not expose request initiator stacks; receipt order does not prove causality.",
+    "Storage values are hashed only after declared-secret redaction."
+  ],
+  "source_evidence_sha256": "BB8284F4C2D36E42D29103A30AC6CD9F8AEF5BF51B2D0F218C7475DB5AA1AD15",
+  "steps": [
+    {
+      "step_index": 0,
+      "step_id": "scenario_start",
+      "action": "goto_start",
+      "status": "completed",
+      "after_url": "http://127.0.0.1:5173/",
+      "accessibility_state": "captured",
+      "accessibility_text": "- document:\n  - banner:\n    - paragraph: Cambridge practice\n    - heading \"Past Paper AI\" [level=1]\n    - text: \"Development user #1\"\n  - main:\n    - navigation \"Practice steps\": 1 Choose 2 Progress 3 Paper 4 Answer 5 Review\n    - region \"Choose what to practise\":\n      - paragraph: Start a practice set\n      - heading \"Choose what to practise\" [level=2]\n      - paragraph: Pick a subject, then optionally narrow the questions to a topic.\n      - text: Subject\n      - combobox \"Subject\":\n        - option \"Select a subject\" [selected]\n        - option \"9618 — Computer Science\"\n      - text: Topic filter (optional)\n      - textbox \"Topic filter (optional)\":\n        - /placeholder: For example, Data representation\n      - paragraph: The topic must match a reviewed topic in the database.\n      - button \"Find questions\" [disabled]\n      - button \"View mastery\" [disabled]",
+      "screenshot": {
+        "state": "captured",
+        "sha256": "c307e58af36dbb3482a81d2089db589a9c92d73a9a7b3a6776721d3b3badd3e4",
+        "bytes": 36366,
+        "file": null
+      }
+    },
+    {
+      "step_index": 1,
+      "step_id": "choose-subject",
+      "action": "select_option",
+      "status": "completed",
+      "after_url": "http://127.0.0.1:5173/",
+      "accessibility_state": "captured",
+      "accessibility_text": "- document:\n  - banner:\n    - paragraph: Cambridge practice\n    - heading \"Past Paper AI\" [level=1]\n    - text: \"Development user #1\"\n    - button \"View mastery\"\n  - main:\n    - navigation \"Practice steps\": 1 Choose 2 Progress 3 Paper 4 Answer 5 Review\n    - region \"Choose what to practise\":\n      - paragraph: Start a practice set\n      - heading \"Choose what to practise\" [level=2]\n      - paragraph: Pick a subject, then optionally narrow the questions to a topic.\n      - text: Subject\n      - combobox \"Subject\":\n        - option \"Select a subject\"\n        - option \"9618 — Computer Science\" [selected]\n      - text: Topic filter (optional)\n      - textbox \"Topic filter (optional)\":\n        - /placeholder: For example, Data representation\n      - paragraph: The topic must match a reviewed topic in the database.\n      - button \"Find questions\"\n      - button \"View mastery\"\n      - region \"Retry questions you missed or flagged\":\n        - paragraph: Mistake practice\n        - heading \"Retry questions you missed or flagged\" [level=3]\n        - paragraph: Only recorded partial attempts and questions you explicitly add to review are included.\n        - text: 2 waiting\n        - button \"Open mistake review\"",
+      "screenshot": {
+        "state": "captured",
+        "sha256": "18a221a03217af353a8b03b4aa0a26c524b7414e7ddebc5c4fc2a04bc68e7bf8",
+        "bytes": 45004,
+        "file": null
+      }
+    },
+    {
+      "step_index": 2,
+      "step_id": "open-review",
+      "action": "click",
+      "status": "completed",
+      "after_url": "http://127.0.0.1:5173/",
+      "accessibility_state": "captured",
+      "accessibility_text": "- document:\n  - banner:\n    - paragraph: Cambridge practice\n    - heading \"Past Paper AI\" [level=1]\n    - text: \"Development user #1\"\n    - button \"View mastery\"\n    - button \"Change subject\"\n  - main:\n    - navigation \"Practice steps\": 1 Choose 2 Mistakes 3 Retry 4 Reflect 5 Done\n    - region \"A short retry set\":\n      - paragraph: Review recorded mistakes\n      - heading \"A short retry set\" [level=2]\n      - paragraph: This queue uses partial or incorrect scored attempts and questions you chose to revisit. Previous answers and feedback stay hidden until you submit a fresh retry.\n      - strong: 2 questions\n      - text: · one subject · original question context included\n      - list:\n        - listitem:\n          - strong: 9618 · 2 (a)\n          - paragraph: Networks · P1 · May/June 2023\n          - text: Recorded partial or incorrect attempt 0 retries\n        - listitem:\n          - strong: 9618 · 3 (b)\n          - paragraph: Data representation · P1 · May/June 2023\n          - text: Recorded partial or incorrect attempt 0 retries\n      - button \"Start 2-question review\"\n      - paragraph: The original answer and feedback are not shown before you try again.",
+      "screenshot": {
+        "state": "captured",
+        "sha256": "ab9f591ae175cc77d86798524a94ec092f53ac63469f986f5df03f9a5d7e20bf",
+        "bytes": 47440,
+        "file": "docs/reviews/mistake-review-ui-queue.png"
+      }
+    },
+    {
+      "step_index": 3,
+      "step_id": "start-review",
+      "action": "click",
+      "status": "completed",
+      "after_url": "http://127.0.0.1:5173/",
+      "accessibility_state": "captured",
+      "accessibility_text": "- document:\n  - banner:\n    - paragraph: Cambridge practice\n    - heading \"Past Paper AI\" [level=1]\n    - text: \"Development user #1\"\n    - button \"View mastery\"\n    - button \"Change subject\"\n  - main:\n    - navigation \"Practice steps\": 1 Choose 2 Mistakes 3 Retry 4 Reflect 5 Done\n    - region \"2 (a)\":\n      - paragraph: Mistake review · Question 1 of 2\n      - text: 1 / 2\n      - paragraph: 9618 · P1 · May/June 2023 · Variant 12\n      - text: \"Topic: Networks Subtopic: Routing Command word: Explain A previous scored attempt did not receive full marks. Your earlier answer and feedback are hidden for now.\"\n      - heading \"2 (a)\" [level=2]\n      - paragraph: Explain one reason a router uses a routing table.\n      - text: Try the question again\n      - textbox \"Try the question again\":\n        - /placeholder: Write a fresh answer before viewing your earlier attempt…\n      - paragraph: This retry is saved as a new attempt and is not automatically graded.\n      - text: After writing your retry, how did it feel?\n      - combobox \"After writing your retry, how did it feel?\":\n        - option \"I can explain it now\"\n        - option \"I understand part of it\" [selected]\n        - option \"I am still unsure\"\n      - paragraph: Self-assessment only. It does not change your marks or mastery.\n      - button \"Submit retry\" [disabled]\n      - button \"Save and leave\"",
+      "screenshot": {
+        "state": "captured",
+        "sha256": "2cb9800e9b1f7575e0f6d382b25041d83e068615c17e9576191df81a3bedf05d",
+        "bytes": 47215,
+        "file": "docs/reviews/mistake-review-ui-fresh-question.png"
+      }
+    },
+    {
+      "step_index": 4,
+      "step_id": "write-first-retry",
+      "action": "fill",
+      "status": "completed",
+      "after_url": "http://127.0.0.1:5173/",
+      "accessibility_state": "captured",
+      "accessibility_text": "- document:\n  - banner:\n    - paragraph: Cambridge practice\n    - heading \"Past Paper AI\" [level=1]\n    - text: \"Development user #1\"\n    - button \"View mastery\"\n    - button \"Change subject\"\n  - main:\n    - navigation \"Practice steps\": 1 Choose 2 Mistakes 3 Retry 4 Reflect 5 Done\n    - region \"2 (a)\":\n      - paragraph: Mistake review · Question 1 of 2\n      - text: 1 / 2\n      - paragraph: 9618 · P1 · May/June 2023 · Variant 12\n      - text: \"Topic: Networks Subtopic: Routing Command word: Explain A previous scored attempt did not receive full marks. Your earlier answer and feedback are hidden for now.\"\n      - heading \"2 (a)\" [level=2]\n      - paragraph: Explain one reason a router uses a routing table.\n      - text: Try the question again\n      - textbox \"Try the question again\":\n        - /placeholder: Write a fresh answer before viewing your earlier attempt…\n        - text: A router uses its routing table to choose the next hop for a packet.\n      - paragraph: This retry is saved as a new attempt and is not automatically graded.\n      - text: After writing your retry, how did it feel?\n      - combobox \"After writing your retry, how did it feel?\":\n        - option \"I can explain it now\"\n        - option \"I understand part of it\" [selected]\n        - option \"I am still unsure\"\n      - paragraph: Self-assessment only. It does not change your marks or mastery.\n      - button \"Submit retry\"\n      - button \"Save and leave\"",
+      "screenshot": {
+        "state": "captured",
+        "sha256": "ed8c29e40e062504b8e2b76c3201edffd5d84855229a4e210750c8c88247c704",
+        "bytes": 40872,
+        "file": "docs/reviews/mistake-review-ui-fresh-answer.png"
+      }
+    },
+    {
+      "step_index": 5,
+      "step_id": "assess-first-retry",
+      "action": "select_option",
+      "status": "completed",
+      "after_url": "http://127.0.0.1:5173/",
+      "accessibility_state": "captured",
+      "accessibility_text": "- document:\n  - banner:\n    - paragraph: Cambridge practice\n    - heading \"Past Paper AI\" [level=1]\n    - text: \"Development user #1\"\n    - button \"View mastery\"\n    - button \"Change subject\"\n  - main:\n    - navigation \"Practice steps\": 1 Choose 2 Mistakes 3 Retry 4 Reflect 5 Done\n    - region \"2 (a)\":\n      - paragraph: Mistake review · Question 1 of 2\n      - text: 1 / 2\n      - paragraph: 9618 · P1 · May/June 2023 · Variant 12\n      - text: \"Topic: Networks Subtopic: Routing Command word: Explain A previous scored attempt did not receive full marks. Your earlier answer and feedback are hidden for now.\"\n      - heading \"2 (a)\" [level=2]\n      - paragraph: Explain one reason a router uses a routing table.\n      - text: Try the question again\n      - textbox \"Try the question again\":\n        - /placeholder: Write a fresh answer before viewing your earlier attempt…\n        - text: A router uses its routing table to choose the next hop for a packet.\n      - paragraph: This retry is saved as a new attempt and is not automatically graded.\n      - text: After writing your retry, how did it feel?\n      - combobox \"After writing your retry, how did it feel?\":\n        - option \"I can explain it now\" [selected]\n        - option \"I understand part of it\"\n        - option \"I am still unsure\"\n      - paragraph: Self-assessment only. It does not change your marks or mastery.\n      - button \"Submit retry\"\n      - button \"Save and leave\"",
+      "screenshot": {
+        "state": "captured",
+        "sha256": "ed8c29e40e062504b8e2b76c3201edffd5d84855229a4e210750c8c88247c704",
+        "bytes": 40872,
+        "file": null
+      }
+    },
+    {
+      "step_index": 6,
+      "step_id": "submit-first-retry",
+      "action": "click",
+      "status": "completed",
+      "after_url": "http://127.0.0.1:5173/",
+      "accessibility_state": "captured",
+      "accessibility_text": "- document:\n  - banner:\n    - paragraph: Cambridge practice\n    - heading \"Past Paper AI\" [level=1]\n    - text: \"Development user #1\"\n    - button \"View mastery\"\n    - button \"Change subject\"\n  - main:\n    - navigation \"Practice steps\": 1 Choose 2 Mistakes 3 Retry 4 Reflect 5 Done\n    - region \"How the retry felt\":\n      - paragraph: Retry saved · Question 1 of 2\n      - heading \"How the retry felt\" [level=2]\n      - paragraph:\n        - strong: \"Self-assessment:\"\n        - text: I can explain it now\n      - paragraph: This is your reflection, not a score or a mastery update.\n      - button \"Reveal my earlier answer and feedback\"\n      - button \"Revisit later\"\n      - button \"Resolve and continue\"",
+      "screenshot": {
+        "state": "captured",
+        "sha256": "cd177635b0b5879cdc8fc0601d98a82ef474bd7a6fbd901260fc6e494bdce6c0",
+        "bytes": 32668,
+        "file": "docs/reviews/mistake-review-ui-feedback.png"
+      }
+    },
+    {
+      "step_index": 7,
+      "step_id": "reveal-first-history",
+      "action": "click",
+      "status": "completed",
+      "after_url": "http://127.0.0.1:5173/",
+      "accessibility_state": "captured",
+      "accessibility_text": "- document:\n  - banner:\n    - paragraph: Cambridge practice\n    - heading \"Past Paper AI\" [level=1]\n    - text: \"Development user #1\"\n    - button \"View mastery\"\n    - button \"Change subject\"\n  - main:\n    - navigation \"Practice steps\": 1 Choose 2 Mistakes 3 Retry 4 Reflect 5 Done\n    - region \"How the retry felt\":\n      - paragraph: Retry saved · Question 1 of 2\n      - heading \"How the retry felt\" [level=2]\n      - paragraph:\n        - strong: \"Self-assessment:\"\n        - text: I can explain it now\n      - paragraph: This is your reflection, not a score or a mastery update.\n      - region \"Earlier attempt\":\n        - heading \"Earlier attempt\" [level=3]\n        - paragraph: \"Recorded score: 0 / 2\"\n        - heading \"Your earlier answer\" [level=4]\n        - paragraph: It forwards packets to the destination.\n        - heading \"Points missed\" [level=4]\n        - list:\n          - listitem: Synthetic prior scoring point\n        - heading \"Earlier feedback\" [level=4]\n        - paragraph: Synthetic earlier feedback.\n        - heading \"Your retry\" [level=4]\n        - paragraph: A router uses its routing table to choose the next hop for a packet.\n      - button \"Revisit later\"\n      - button \"Resolve and continue\"",
+      "screenshot": {
+        "state": "captured",
+        "sha256": "4c513abbde1d275059be2989286029c2496e302686e53246ffd1d1b4bad72750",
+        "bytes": 32046,
+        "file": null
+      }
+    },
+    {
+      "step_index": 8,
+      "step_id": "wait-history",
+      "action": "wait_for",
+      "status": "completed",
+      "after_url": "http://127.0.0.1:5173/",
+      "accessibility_state": "captured",
+      "accessibility_text": "- document:\n  - banner:\n    - paragraph: Cambridge practice\n    - heading \"Past Paper AI\" [level=1]\n    - text: \"Development user #1\"\n    - button \"View mastery\"\n    - button \"Change subject\"\n  - main:\n    - navigation \"Practice steps\": 1 Choose 2 Mistakes 3 Retry 4 Reflect 5 Done\n    - region \"How the retry felt\":\n      - paragraph: Retry saved · Question 1 of 2\n      - heading \"How the retry felt\" [level=2]\n      - paragraph:\n        - strong: \"Self-assessment:\"\n        - text: I can explain it now\n      - paragraph: This is your reflection, not a score or a mastery update.\n      - region \"Earlier attempt\":\n        - heading \"Earlier attempt\" [level=3]\n        - paragraph: \"Recorded score: 0 / 2\"\n        - heading \"Your earlier answer\" [level=4]\n        - paragraph: It forwards packets to the destination.\n        - heading \"Points missed\" [level=4]\n        - list:\n          - listitem: Synthetic prior scoring point\n        - heading \"Earlier feedback\" [level=4]\n        - paragraph: Synthetic earlier feedback.\n        - heading \"Your retry\" [level=4]\n        - paragraph: A router uses its routing table to choose the next hop for a packet.\n      - button \"Revisit later\"\n      - button \"Resolve and continue\"",
+      "screenshot": {
+        "state": "captured",
+        "sha256": "1be37656b75f2f60e8966d254e020a7a865944f81ed1b1806f75d3d057281bb1",
+        "bytes": 37679,
+        "file": "docs/reviews/mistake-review-ui-history-revealed.png"
+      }
+    },
+    {
+      "step_index": 9,
+      "step_id": "continue-to-second",
+      "action": "click",
+      "status": "completed",
+      "after_url": "http://127.0.0.1:5173/",
+      "accessibility_state": "captured",
+      "accessibility_text": "- document:\n  - banner:\n    - paragraph: Cambridge practice\n    - heading \"Past Paper AI\" [level=1]\n    - text: \"Development user #1\"\n    - button \"View mastery\"\n    - button \"Change subject\"\n  - main:\n    - navigation \"Practice steps\": 1 Choose 2 Mistakes 3 Retry 4 Reflect 5 Done\n    - region \"3 (b)\":\n      - paragraph: Mistake review · Question 2 of 2\n      - text: 2 / 2\n      - paragraph: 9618 · P1 · May/June 2023 · Variant 12\n      - text: \"Topic: Data representation Subtopic: Binary arithmetic Command word: Calculate A previous scored attempt did not receive full marks. Your earlier answer and feedback are hidden for now.\"\n      - heading \"3 (b)\" [level=2]\n      - paragraph: Calculate the binary value after shifting 00001100 one place to the right.\n      - text: Try the question again\n      - textbox \"Try the question again\":\n        - /placeholder: Write a fresh answer before viewing your earlier attempt…\n      - paragraph: This retry is saved as a new attempt and is not automatically graded.\n      - text: After writing your retry, how did it feel?\n      - combobox \"After writing your retry, how did it feel?\":\n        - option \"I can explain it now\"\n        - option \"I understand part of it\" [selected]\n        - option \"I am still unsure\"\n      - paragraph: Self-assessment only. It does not change your marks or mastery.\n      - button \"Submit retry\" [disabled]\n      - button \"Save and leave\"",
+      "screenshot": {
+        "state": "captured",
+        "sha256": "e41d01f0f36d1f2a870907ec75ac1d0a63dc4232cdaea3dab2ebdfc976294380",
+        "bytes": 32889,
+        "file": "docs/reviews/mistake-review-ui-next-question.png"
+      }
+    },
+    {
+      "step_index": 10,
+      "step_id": "wait-second-item",
+      "action": "wait_for_timeout",
+      "status": "completed",
+      "after_url": "http://127.0.0.1:5173/",
+      "accessibility_state": "captured",
+      "accessibility_text": "- document:\n  - banner:\n    - paragraph: Cambridge practice\n    - heading \"Past Paper AI\" [level=1]\n    - text: \"Development user #1\"\n    - button \"View mastery\"\n    - button \"Change subject\"\n  - main:\n    - navigation \"Practice steps\": 1 Choose 2 Mistakes 3 Retry 4 Reflect 5 Done\n    - region \"3 (b)\":\n      - paragraph: Mistake review · Question 2 of 2\n      - text: 2 / 2\n      - paragraph: 9618 · P1 · May/June 2023 · Variant 12\n      - text: \"Topic: Data representation Subtopic: Binary arithmetic Command word: Calculate A previous scored attempt did not receive full marks. Your earlier answer and feedback are hidden for now.\"\n      - heading \"3 (b)\" [level=2]\n      - paragraph: Calculate the binary value after shifting 00001100 one place to the right.\n      - text: Try the question again\n      - textbox \"Try the question again\":\n        - /placeholder: Write a fresh answer before viewing your earlier attempt…\n      - paragraph: This retry is saved as a new attempt and is not automatically graded.\n      - text: After writing your retry, how did it feel?\n      - combobox \"After writing your retry, how did it feel?\":\n        - option \"I can explain it now\"\n        - option \"I understand part of it\" [selected]\n        - option \"I am still unsure\"\n      - paragraph: Self-assessment only. It does not change your marks or mastery.\n      - button \"Submit retry\" [disabled]\n      - button \"Save and leave\"",
+      "screenshot": {
+        "state": "captured",
+        "sha256": "3a24b0377cf283cc16025ed55a09879fabc6cf4fa4c2b10bb113ae158c86c837",
+        "bytes": 36365,
+        "file": null
+      }
+    },
+    {
+      "step_index": 11,
+      "step_id": "write-second-retry",
+      "action": "fill",
+      "status": "completed",
+      "after_url": "http://127.0.0.1:5173/",
+      "accessibility_state": "captured",
+      "accessibility_text": "- document:\n  - banner:\n    - paragraph: Cambridge practice\n    - heading \"Past Paper AI\" [level=1]\n    - text: \"Development user #1\"\n    - button \"View mastery\"\n    - button \"Change subject\"\n  - main:\n    - navigation \"Practice steps\": 1 Choose 2 Mistakes 3 Retry 4 Reflect 5 Done\n    - region \"3 (b)\":\n      - paragraph: Mistake review · Question 2 of 2\n      - text: 2 / 2\n      - paragraph: 9618 · P1 · May/June 2023 · Variant 12\n      - text: \"Topic: Data representation Subtopic: Binary arithmetic Command word: Calculate A previous scored attempt did not receive full marks. Your earlier answer and feedback are hidden for now.\"\n      - heading \"3 (b)\" [level=2]\n      - paragraph: Calculate the binary value after shifting 00001100 one place to the right.\n      - text: Try the question again\n      - textbox \"Try the question again\":\n        - /placeholder: Write a fresh answer before viewing your earlier attempt…\n        - text: \"00000110\"\n      - paragraph: This retry is saved as a new attempt and is not automatically graded.\n      - text: After writing your retry, how did it feel?\n      - combobox \"After writing your retry, how did it feel?\":\n        - option \"I can explain it now\"\n        - option \"I understand part of it\" [selected]\n        - option \"I am still unsure\"\n      - paragraph: Self-assessment only. It does not change your marks or mastery.\n      - button \"Submit retry\"\n      - button \"Save and leave\"",
+      "screenshot": {
+        "state": "captured",
+        "sha256": "072d8ddbc4caf5745f44289c6816fabacbe195e533d318d074f599933512a9c9",
+        "bytes": 35685,
+        "file": null
+      }
+    },
+    {
+      "step_index": 12,
+      "step_id": "assess-second-retry",
+      "action": "select_option",
+      "status": "completed",
+      "after_url": "http://127.0.0.1:5173/",
+      "accessibility_state": "captured",
+      "accessibility_text": "- document:\n  - banner:\n    - paragraph: Cambridge practice\n    - heading \"Past Paper AI\" [level=1]\n    - text: \"Development user #1\"\n    - button \"View mastery\"\n    - button \"Change subject\"\n  - main:\n    - navigation \"Practice steps\": 1 Choose 2 Mistakes 3 Retry 4 Reflect 5 Done\n    - region \"3 (b)\":\n      - paragraph: Mistake review · Question 2 of 2\n      - text: 2 / 2\n      - paragraph: 9618 · P1 · May/June 2023 · Variant 12\n      - text: \"Topic: Data representation Subtopic: Binary arithmetic Command word: Calculate A previous scored attempt did not receive full marks. Your earlier answer and feedback are hidden for now.\"\n      - heading \"3 (b)\" [level=2]\n      - paragraph: Calculate the binary value after shifting 00001100 one place to the right.\n      - text: Try the question again\n      - textbox \"Try the question again\":\n        - /placeholder: Write a fresh answer before viewing your earlier attempt…\n        - text: \"00000110\"\n      - paragraph: This retry is saved as a new attempt and is not automatically graded.\n      - text: After writing your retry, how did it feel?\n      - combobox \"After writing your retry, how did it feel?\":\n        - option \"I can explain it now\"\n        - option \"I understand part of it\" [selected]\n        - option \"I am still unsure\"\n      - paragraph: Self-assessment only. It does not change your marks or mastery.\n      - button \"Submit retry\"\n      - button \"Save and leave\"",
+      "screenshot": {
+        "state": "captured",
+        "sha256": "072d8ddbc4caf5745f44289c6816fabacbe195e533d318d074f599933512a9c9",
+        "bytes": 35685,
+        "file": null
+      }
+    },
+    {
+      "step_index": 13,
+      "step_id": "submit-second-retry",
+      "action": "click",
+      "status": "completed",
+      "after_url": "http://127.0.0.1:5173/",
+      "accessibility_state": "captured",
+      "accessibility_text": "- document:\n  - banner:\n    - paragraph: Cambridge practice\n    - heading \"Past Paper AI\" [level=1]\n    - text: \"Development user #1\"\n    - button \"View mastery\"\n    - button \"Change subject\"\n  - main:\n    - navigation \"Practice steps\": 1 Choose 2 Mistakes 3 Retry 4 Reflect 5 Done\n    - region \"How the retry felt\":\n      - paragraph: Retry saved · Question 2 of 2\n      - heading \"How the retry felt\" [level=2]\n      - paragraph:\n        - strong: \"Self-assessment:\"\n        - text: I understand part of it\n      - paragraph: This is your reflection, not a score or a mastery update.\n      - button \"Reveal my earlier answer and feedback\"\n      - button \"Revisit later\"\n      - button \"Resolve and finish\"",
+      "screenshot": {
+        "state": "captured",
+        "sha256": "6d3c5e25227f097b02845d96aea05f619ee4272291a1c2184fe7675a2a092874",
+        "bytes": 33100,
+        "file": null
+      }
+    },
+    {
+      "step_index": 14,
+      "step_id": "finish-review",
+      "action": "click",
+      "status": "completed",
+      "after_url": "http://127.0.0.1:5173/",
+      "accessibility_state": "captured",
+      "accessibility_text": "- document:\n  - banner:\n    - paragraph: Cambridge practice\n    - heading \"Past Paper AI\" [level=1]\n    - text: \"Development user #1\"\n    - button \"View mastery\"\n    - button \"Change subject\"\n  - main:\n    - navigation \"Practice steps\": 1 Choose 2 Mistakes 3 Retry 4 Reflect 5 Done\n    - region \"You reached the end of this set\":\n      - paragraph: Review complete\n      - heading \"You reached the end of this set\" [level=2]\n      - paragraph: 2 of 2 retries saved. Revisit items remain in your queue; resolved items can be reopened below.\n      - list:\n        - listitem:\n          - strong: 2 (a)\n          - paragraph: Networks · resolved\n          - button \"Reopen\"\n        - listitem:\n          - strong: 3 (b)\n          - paragraph: Data representation · resolved\n          - button \"Reopen\"\n      - paragraph: Your retry answers remain linked to the original attempt. Self-assessments do not change marks or mastery.",
+      "screenshot": {
+        "state": "captured",
+        "sha256": "0e94669cd9639cabcc561c867540f1f184075437b16a719ce2b40472cdeb2aa8",
+        "bytes": 32315,
+        "file": null
+      }
+    },
+    {
+      "step_index": 15,
+      "step_id": "wait-completion",
+      "action": "wait_for",
+      "status": "completed",
+      "after_url": "http://127.0.0.1:5173/",
+      "accessibility_state": "captured",
+      "accessibility_text": "- document:\n  - banner:\n    - paragraph: Cambridge practice\n    - heading \"Past Paper AI\" [level=1]\n    - text: \"Development user #1\"\n    - button \"View mastery\"\n    - button \"Change subject\"\n  - main:\n    - navigation \"Practice steps\": 1 Choose 2 Mistakes 3 Retry 4 Reflect 5 Done\n    - region \"You reached the end of this set\":\n      - paragraph: Review complete\n      - heading \"You reached the end of this set\" [level=2]\n      - paragraph: 2 of 2 retries saved. Revisit items remain in your queue; resolved items can be reopened below.\n      - list:\n        - listitem:\n          - strong: 2 (a)\n          - paragraph: Networks · resolved\n          - button \"Reopen\"\n        - listitem:\n          - strong: 3 (b)\n          - paragraph: Data representation · resolved\n          - button \"Reopen\"\n      - paragraph: Your retry answers remain linked to the original attempt. Self-assessments do not change marks or mastery.",
+      "screenshot": {
+        "state": "captured",
+        "sha256": "f6544ec45082c8ef953ea998bc7034c5238791c6970fb57b1f49fbd6237ecd33",
+        "bytes": 37001,
+        "file": "docs/reviews/mistake-review-ui-completion.png"
+      }
+    },
+    {
+      "step_index": 16,
+      "step_id": "reopen-first",
+      "action": "click",
+      "status": "completed",
+      "after_url": "http://127.0.0.1:5173/",
+      "accessibility_state": "captured",
+      "accessibility_text": "- document:\n  - banner:\n    - paragraph: Cambridge practice\n    - heading \"Past Paper AI\" [level=1]\n    - text: \"Development user #1\"\n    - button \"View mastery\"\n    - button \"Change subject\"\n  - main:\n    - navigation \"Practice steps\": 1 Choose 2 Mistakes 3 Retry 4 Reflect 5 Done\n    - region \"A short retry set\":\n      - paragraph: Review recorded mistakes\n      - heading \"A short retry set\" [level=2]\n      - paragraph: This queue uses partial or incorrect scored attempts and questions you chose to revisit. Previous answers and feedback stay hidden until you submit a fresh retry.\n      - strong: 1 question\n      - text: · one subject · original question context included\n      - list:\n        - listitem:\n          - strong: 9618 · 2 (a)\n          - paragraph: Networks · P1 · May/June 2023\n          - text: Recorded partial or incorrect attempt · reopened 1 retry\n      - button \"Start 1-question review\"\n      - paragraph: The original answer and feedback are not shown before you try again.",
+      "screenshot": {
+        "state": "captured",
+        "sha256": "98e5eba1613b80b7283892c8100d698fc59cd6ae8e3e53db97ac24cb7b7fe4b7",
+        "bytes": 38331,
+        "file": null
+      }
+    },
+    {
+      "step_index": 17,
+      "step_id": "wait-reopened-queue",
+      "action": "wait_for",
+      "status": "completed",
+      "after_url": "http://127.0.0.1:5173/",
+      "accessibility_state": "captured",
+      "accessibility_text": "- document:\n  - banner:\n    - paragraph: Cambridge practice\n    - heading \"Past Paper AI\" [level=1]\n    - text: \"Development user #1\"\n    - button \"View mastery\"\n    - button \"Change subject\"\n  - main:\n    - navigation \"Practice steps\": 1 Choose 2 Mistakes 3 Retry 4 Reflect 5 Done\n    - region \"A short retry set\":\n      - paragraph: Review recorded mistakes\n      - heading \"A short retry set\" [level=2]\n      - paragraph: This queue uses partial or incorrect scored attempts and questions you chose to revisit. Previous answers and feedback stay hidden until you submit a fresh retry.\n      - strong: 1 question\n      - text: · one subject · original question context included\n      - list:\n        - listitem:\n          - strong: 9618 · 2 (a)\n          - paragraph: Networks · P1 · May/June 2023\n          - text: Recorded partial or incorrect attempt · reopened 1 retry\n      - button \"Start 1-question review\"\n      - paragraph: The original answer and feedback are not shown before you try again.",
+      "screenshot": {
+        "state": "captured",
+        "sha256": "0571a44cdbe8df461f6106ff8a46236aaf379ef87e481c40a4f6a43cf52441d3",
+        "bytes": 41835,
+        "file": "docs/reviews/mistake-review-ui-reopened-queue.png"
+      }
+    }
+  ]
+}

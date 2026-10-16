@@ -8,10 +8,10 @@ from unittest.mock import patch
 
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import create_engine, func, select
+from sqlalchemy import create_engine, func, select, text
 from sqlalchemy.orm import Session
 
-from src.db.models import Attempt, MarkSchemePoint, Question, Subject, User
+from src.db.models import MarkSchemePoint, Question, Subject, User
 
 
 class OrphanGeneratedQuestionMigrationTests(unittest.TestCase):
@@ -83,12 +83,19 @@ class OrphanGeneratedQuestionMigrationTests(unittest.TestCase):
                             MarkSchemePoint(question_id=101, point_text="Orphan point", marks_value=1),
                             MarkSchemePoint(question_id=102, point_text="Referenced point", marks_value=1),
                             MarkSchemePoint(question_id=103, point_text="Shared point", marks_value=1),
-                            Attempt(
-                                user_id=7,
-                                question_id=102,
-                                submitted_answer_text="A recorded answer",
-                            ),
                         ]
+                    )
+                    session.execute(
+                        text(
+                            "INSERT INTO attempts (user_id, question_id, submitted_answer_text, points_awarded) "
+                            "VALUES (:user_id, :question_id, :answer, :points)"
+                        ),
+                        {
+                            "user_id": 7,
+                            "question_id": 102,
+                            "answer": "A recorded answer",
+                            "points": "{}",
+                        },
                     )
                     session.commit()
                 engine.dispose()
