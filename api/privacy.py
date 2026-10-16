@@ -13,6 +13,7 @@ from src.db.models import (
     DiagnosticResponse,
     Mastery,
     MarkSchemePoint,
+    MistakeReview,
     Paper,
     PaperQuestion,
     PracticeAnswer,
@@ -117,8 +118,15 @@ def export_student_data(session: Session, user: User) -> dict[str, object]:
                 (
                     "id", "question_id", "submitted_answer_text", "points_awarded", "marks_earned",
                     "marks_possible", "grading_model", "grading_policy_version", "grading_status",
-                    "correction_note", "corrected_at", "attempted_at",
+                    "correction_note", "corrected_at", "retry_of_attempt_id", "retry_submission_key",
+                    "self_assessment", "attempted_at",
                 ),
+            ),
+            "mistake_reviews": _records(
+                session.scalars(
+                    select(MistakeReview).where(MistakeReview.user_id == user_id).order_by(MistakeReview.id)
+                ).all(),
+                ("id", "original_attempt_id", "state", "source", "created_at", "updated_at"),
             ),
             "mastery": _records(
                 session.scalars(select(Mastery).where(Mastery.user_id == user_id).order_by(Mastery.id)).all(),
@@ -176,7 +184,7 @@ def export_student_data(session: Session, user: User) -> dict[str, object]:
             "practice_sessions": _records(
                 session.scalars(sessions.order_by(PracticeSession.id)).all(),
                 (
-                    "id", "subject_id", "paper_id", "recommendation_id", "state", "idempotency_key",
+                    "id", "subject_id", "session_type", "paper_id", "recommendation_id", "state", "idempotency_key",
                     "created_at", "started_at", "submitted_at",
                 ),
             ),
@@ -187,7 +195,10 @@ def export_student_data(session: Session, user: User) -> dict[str, object]:
                     .where(PracticeSession.user_id == user_id)
                     .order_by(PracticeAnswer.id)
                 ).all(),
-                ("id", "session_id", "question_id", "answer_text", "status", "attempt_id", "updated_at"),
+                (
+                    "id", "session_id", "question_id", "original_attempt_id", "answer_text", "status",
+                    "attempt_id", "previous_answer_revealed_at", "updated_at",
+                ),
             ),
         },
         "shared_content_note": "Shared source questions and mark schemes are referenced by ID only. Private AI-generated question text and marks are included only when this user's paper is the sole owner.",
@@ -252,6 +263,7 @@ def delete_student_data(session: Session, user_id: int) -> None:
     session.execute(delete(PracticeAnswer).where(PracticeAnswer.session_id.in_(practice_session_ids)))
     session.execute(delete(DiagnosticEvidence).where(DiagnosticEvidence.user_id == user_id))
     session.execute(delete(PracticeSession).where(PracticeSession.user_id == user_id))
+    session.execute(delete(MistakeReview).where(MistakeReview.user_id == user_id))
     session.execute(delete(Diagnostic).where(Diagnostic.user_id == user_id))
     session.execute(delete(Recommendation).where(Recommendation.user_id == user_id))
     session.execute(delete(Mastery).where(Mastery.user_id == user_id))

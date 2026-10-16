@@ -50,6 +50,7 @@ Priority:
 - The AI provider and student-data processing arrangement remain undecided. No evidence of permission to store, display, adapt, or transmit Cambridge past-paper content, school exams, notes, or other third-party learning material has been supplied. School data permissions—including collection, teacher visibility, retention, and deletion—remain undecided. These are release gates.
 - The v1 API now defaults student-data AI egress to denied and provides owner-scoped JSON export plus confirmed deletion of the student's rows in the active application database. These technical controls do not decide consent/legal basis, retention duration, school/teacher access, backup or provider deletion, regional eligibility, or Cambridge content rights; those remain BL-206 gates. The existing test/local HMAC ownership check is not production student authentication.
 - The current v1 schema/API does not accept student notes or uploaded school-exam files. If either is added, it must have a documented purpose/permission basis and be covered by owner-scoped access, export, deletion, and provider-egress controls before intake is enabled.
+- The bounded mistake-review journey is implemented as a local v1 slice using synthetic 9618 records. Duolingo behavior was not observed because REA could not be installed and the requested Chrome CDP endpoint refused connections; reference-specific unknowns remain documented separately.
 
 ## 4. P0 — trust and prerequisite blockers
 
@@ -393,6 +394,25 @@ Acceptance criteria:
 - Recommendation records expose separate decision provenance without overloading evidence confidence.
 - The frontend displays the chapter, activity, and provenance while preserving a validated chapter-filtered question route.
 - Live TypeSafe behavior, disposable PostgreSQL migration validation, browser fallback behavior, hosted deployment, and production RLS remain separately evidenced.
+
+### BL-109 — Add bounded mistake review
+
+- Status: `IN PROGRESS`
+- Priority: `P1`
+- Dependency: BL-104, BL-105, and BL-107
+
+Add a short retry journey backed only by explicit attempt evidence or an explicit student choice. This is a v1 API/UI slice and does not depend on Duolingo's internal scheduling or scoring behavior.
+
+Acceptance criteria:
+
+- Queue eligibility uses a recorded scored miss/partial attempt or a separately stored owner confirmation. It never infers correctness from time, clicks, or self-assessment.
+- Before a fresh retry, the API and UI withhold the previous answer and feedback. A retry appends a new attempt linked to the exact original and protected by an idempotency key.
+- Where marking evidence is unavailable, the retry is clearly self-assessed and does not change marks or mastery.
+- Review items have explicit open, revisit, resolved, and reopened states. Active sessions can be resumed with saved draft answers.
+- Queue, session, retry, history reveal, and review-state operations enforce owner and generated-question access checks.
+- Privacy export and deletion cover review/session records. Automatic AI grading stays disabled and no student-data provider is enabled.
+- Synthetic 9618 fixtures cover eligibility, owner isolation, duplicate submissions, original-attempt preservation, linked history, reveal order, review-state transitions, resume, and browser interaction. Reviewed exam content is used only after its content-review gate is met.
+- Local synthetic UI interaction is captured through REA Playwright. Duolingo reference inspection remains pending because the user-provided CDP endpoint on port 9222 refused connections; do not treat the local capture as reference evidence.
 
 ## 6. P2 — school product and platform maturity
 

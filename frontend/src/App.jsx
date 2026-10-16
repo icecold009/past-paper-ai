@@ -1,9 +1,30 @@
 import { useEffect, useMemo, useState } from 'react'
-import { generateWeakSpotPaper, getGuidance, getMastery, getQuestions, getSubjects, submitAttempt } from './api.js'
+import {
+  confirmMistakeForReview,
+  createMistakeSession,
+  generateWeakSpotPaper,
+  getActiveMistakeSession,
+  getGuidance,
+  getMastery,
+  getMistakeQueue,
+  getQuestions,
+  getSubjects,
+  revealMistakeHistory,
+  saveMistakeDraft,
+  submitAttempt,
+  submitMistakeRetry,
+  submitMistakeSession,
+  updateMistakeReviewState,
+} from './api.js'
 import GeneratedPaper from './GeneratedPaper.jsx'
 import MasteryDashboard from './MasteryDashboard.jsx'
+import { MistakeCompletion, MistakeFeedback, MistakeQueue, MistakeQuestion } from './MistakeReview.jsx'
 
 const DEVELOPMENT_USER_ID = 1
+
+function newIdempotencyKey() {
+  return globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
 
 function LoadingState({ message }) {
   return <p className="status-message">{message}</p>
@@ -47,13 +68,21 @@ function AppHeader({ screen, onStartOver, onOpenDashboard, selectedSubject }) {
 }
 
 function StepIndicator({ screen }) {
-  const steps = [
-    ['picker', 'Choose'],
-    ['dashboard', 'Progress'],
-    ['paper', 'Paper'],
-    ['question', 'Answer'],
-    ['feedback', 'Review'],
-  ]
+  const steps = screen.startsWith('mistake-') || screen === 'mistakes'
+    ? [
+      ['picker', 'Choose'],
+      ['mistakes', 'Mistakes'],
+      ['mistake-question', 'Retry'],
+      ['mistake-feedback', 'Reflect'],
+      ['mistake-complete', 'Done'],
+    ]
+    : [
+      ['picker', 'Choose'],
+      ['dashboard', 'Progress'],
+      ['paper', 'Paper'],
+      ['question', 'Answer'],
+      ['feedback', 'Review'],
+    ]
   const activeIndex = steps.findIndex(([id]) => id === screen)
 
   return (
@@ -97,7 +126,32 @@ function GuidanceCard({ guidance, loading, error, onRetry, onStart }) {
   )
 }
 
-function SubjectPicker({ subjects, loading, error, selectedSubject, topic, guidance, guidanceLoading, guidanceError, onSubjectChange, onTopicChange, onStart, onStartGuidance, onOpenDashboard, onRetry, onRetryGuidance }) {
+function SubjectPicker({
+  subjects,
+  loading,
+  error,
+  selectedSubject,
+  topic,
+  guidance,
+  guidanceLoading,
+  guidanceError,
+  mistakeQueue,
+  mistakeQueueLoading,
+  mistakeQueueError,
+  activeMistakeError,
+  activeMistakeLoading,
+  activeMistakeSession,
+  onSubjectChange,
+  onTopicChange,
+  onStart,
+  onStartGuidance,
+  onOpenDashboard,
+  onOpenMistakes,
+  onResumeMistakes,
+  onRetry,
+  onRetryGuidance,
+  onRetryMistakes,
+}) {
   return (
     <section className="panel picker-panel" aria-labelledby="picker-heading">
       <p className="eyebrow">Start a practice set</p>
@@ -141,13 +195,41 @@ function SubjectPicker({ subjects, loading, error, selectedSubject, topic, guida
       )}
 
       {selectedSubject && (
-        <GuidanceCard
-          guidance={guidance}
-          loading={guidanceLoading}
-          error={guidanceError}
-          onRetry={onRetryGuidance}
-          onStart={onStartGuidance}
-        />
+        <>
+          <GuidanceCard
+            guidance={guidance}
+            loading={guidanceLoading}
+            error={guidanceError}
+            onRetry={onRetryGuidance}
+            onStart={onStartGuidance}
+          />
+          {selectedSubject === '9618' && <section className="review-launch-card" aria-labelledby="review-launch-heading">
+            <div>
+              <p className="eyebrow">Mistake practice</p>
+              <h3 id="review-launch-heading">Retry questions you missed or flagged</h3>
+              <p>Only recorded partial attempts and questions you explicitly add to review are included.</p>
+            </div>
+            <div className="review-launch-actions">
+              <span className="review-launch-count">
+                {mistakeQueueLoading ? 'Loading queue…' : activeMistakeLoading ? 'Checking saved review…' : `${mistakeQueue?.items?.length || 0} waiting`}
+              </span>
+              <button className="button button-secondary" type="button" onClick={onOpenMistakes} disabled={mistakeQueueLoading}>
+                Open mistake review
+              </button>
+              {activeMistakeSession && (
+                <button className="button button-primary" type="button" onClick={onResumeMistakes}>
+                  Resume saved review
+                </button>
+              )}
+            </div>
+            {(mistakeQueueError || activeMistakeError) && (
+              <div className="review-launch-error" role="alert">
+                <p>{mistakeQueueError || activeMistakeError}</p>
+                <button className="button button-secondary" type="button" onClick={onRetryMistakes}>Retry queue</button>
+              </div>
+            )}
+          </section>}
+        </>
       )}
     </section>
   )
@@ -212,7 +294,7 @@ function PointList({ title, points, tone }) {
   )
 }
 
-function FeedbackScreen({ result, question, isLastQuestion, onNext }) {
+function FeedbackScreen({ result, question, isLastQuestion, canAddReview, onNext, onMarkForReview, markingForReview, markedForReview, markReviewError }) {
   const percentage = result.marks_possible > 0 ? Math.round((result.marks_earned / result.marks_possible) * 100) : 0
 
   return (
@@ -242,6 +324,18 @@ function FeedbackScreen({ result, question, isLastQuestion, onNext }) {
       <button className="button button-primary" type="button" onClick={onNext}>
         {isLastQuestion ? 'Choose another question set' : 'Next question'}
       </button>
+      {canAddReview && (
+        <>
+          {markedForReview ? (
+            <p className="review-confirmation" role="status">This attempt is in your mistake-review queue.</p>
+          ) : (
+            <button className="button button-secondary feedback-review-button" type="button" onClick={onMarkForReview} disabled={markingForReview}>
+              {markingForReview ? 'Adding to review…' : 'Add this attempt to mistake review'}
+            </button>
+          )}
+          {markReviewError && <ErrorState message={markReviewError} />}
+        </>
+      )}
     </section>
   )
 }
@@ -271,9 +365,29 @@ export default function App() {
   const [generatedPaper, setGeneratedPaper] = useState(null)
   const [paperLoading, setPaperLoading] = useState(false)
   const [paperError, setPaperError] = useState('')
+  const [mistakeQueue, setMistakeQueue] = useState(null)
+  const [mistakeQueueLoading, setMistakeQueueLoading] = useState(false)
+  const [mistakeQueueError, setMistakeQueueError] = useState('')
+  const [activeMistakeSession, setActiveMistakeSession] = useState(null)
+  const [activeMistakeError, setActiveMistakeError] = useState('')
+  const [activeMistakeLoading, setActiveMistakeLoading] = useState(false)
+  const [mistakeSession, setMistakeSession] = useState(null)
+  const [mistakeIndex, setMistakeIndex] = useState(0)
+  const [mistakeAnswer, setMistakeAnswer] = useState('')
+  const [mistakeSelfAssessment, setMistakeSelfAssessment] = useState('partly')
+  const [mistakeRetry, setMistakeRetry] = useState(null)
+  const [mistakeHistory, setMistakeHistory] = useState(null)
+  const [mistakeError, setMistakeError] = useState('')
+  const [mistakeLoading, setMistakeLoading] = useState(false)
+  const [mistakeRevealing, setMistakeRevealing] = useState(false)
+  const [pendingMistakeRetry, setPendingMistakeRetry] = useState(null)
+  const [markingForReview, setMarkingForReview] = useState(false)
+  const [markReviewError, setMarkReviewError] = useState('')
+  const [markedAttemptIds, setMarkedAttemptIds] = useState(() => new Set())
 
   const question = questions[questionIndex]
   const isLastQuestion = questionIndex >= questions.length - 1
+  const mistakeItem = mistakeSession?.items?.[mistakeIndex]
   const selectedSubjectName = useMemo(
     () => subjects.find((subject) => subject.code === selectedSubject)?.name,
     [selectedSubject, subjects],
@@ -350,13 +464,48 @@ export default function App() {
     }
   }
 
+  async function loadMistakeQueue(subjectCode = selectedSubject) {
+    if (!subjectCode) return
+    setMistakeQueueLoading(true)
+    setMistakeQueueError('')
+    try {
+      setMistakeQueue(await getMistakeQueue({ userId: DEVELOPMENT_USER_ID, subject: subjectCode }))
+    } catch (error) {
+      setMistakeQueueError(error.message || 'Could not load your mistake-review queue.')
+    } finally {
+      setMistakeQueueLoading(false)
+    }
+  }
+
+  async function loadActiveMistake(subjectCode = selectedSubject) {
+    if (!subjectCode) return
+    setActiveMistakeLoading(true)
+    setActiveMistakeError('')
+    try {
+      setActiveMistakeSession(await getActiveMistakeSession({ userId: DEVELOPMENT_USER_ID, subject: subjectCode }))
+    } catch (error) {
+      setActiveMistakeSession(null)
+      setActiveMistakeError(error.message || 'Could not check for a saved review.')
+    } finally {
+      setActiveMistakeLoading(false)
+    }
+  }
+
   useEffect(() => {
     loadSubjects()
   }, [])
 
   useEffect(() => {
-    if (selectedSubject) loadGuidance(selectedSubject)
-    else setGuidance(null)
+    if (selectedSubject) {
+      loadGuidance(selectedSubject)
+      loadMistakeQueue(selectedSubject)
+      loadActiveMistake(selectedSubject)
+    } else {
+      setGuidance(null)
+      setMistakeQueue(null)
+      setActiveMistakeSession(null)
+      setActiveMistakeError('')
+    }
   }, [selectedSubject])
 
   async function handleStart(event) {
@@ -429,6 +578,230 @@ export default function App() {
     }
   }
 
+  async function handleMarkForReview() {
+    if (!gradingResult?.attempt_id) return
+    setMarkingForReview(true)
+    setMarkReviewError('')
+    try {
+      await confirmMistakeForReview({ userId: DEVELOPMENT_USER_ID, attemptId: gradingResult.attempt_id })
+      setMarkedAttemptIds((current) => new Set(current).add(gradingResult.attempt_id))
+      await loadMistakeQueue(selectedSubject)
+    } catch (error) {
+      setMarkReviewError(error.message || 'Could not add this attempt to review.')
+    } finally {
+      setMarkingForReview(false)
+    }
+  }
+
+  async function handleOpenMistakes() {
+    setScreen('mistakes')
+    setMistakeError('')
+    await Promise.all([loadMistakeQueue(selectedSubject), loadActiveMistake(selectedSubject)])
+  }
+
+  async function handleRetryMistakes() {
+    setMistakeError('')
+    await Promise.all([loadMistakeQueue(selectedSubject), loadActiveMistake(selectedSubject)])
+  }
+
+  function showMistakeSession(review) {
+    if (!review?.items?.length) {
+      setMistakeSession(review)
+      setMistakeError('This session has no review items.')
+      setScreen('mistakes')
+      return
+    }
+    const index = review.items.findIndex((item) => item.review_state === 'open' || item.review_state === 'reopened')
+    const selectedIndex = index >= 0 ? index : 0
+    const item = review.items[selectedIndex]
+    setMistakeSession(review)
+    setActiveMistakeSession(review.state === 'active' || review.state === 'draft' ? review : null)
+    setMistakeIndex(selectedIndex)
+    setMistakeAnswer(item.answer_text || '')
+    setMistakeSelfAssessment(item.retry_self_assessment || 'partly')
+    setMistakeRetry(item.retry_attempt_id
+      ? { attempt_id: item.retry_attempt_id, self_assessment: item.retry_self_assessment || 'partly' }
+      : null)
+    setMistakeHistory(null)
+    setMistakeError('')
+    setPendingMistakeRetry(null)
+    setScreen(item.retry_attempt_id ? 'mistake-feedback' : 'mistake-question')
+  }
+
+  async function handleStartMistakeSession() {
+    if (activeMistakeSession) {
+      showMistakeSession(activeMistakeSession)
+      return
+    }
+    const attemptIds = mistakeQueue?.items?.map((item) => item.original_attempt_id) || []
+    if (!attemptIds.length) return
+    setMistakeLoading(true)
+    setMistakeError('')
+    try {
+      const review = await createMistakeSession({
+        userId: DEVELOPMENT_USER_ID,
+        subject: selectedSubject,
+        attemptIds,
+        idempotencyKey: newIdempotencyKey(),
+      })
+      showMistakeSession(review)
+    } catch (error) {
+      setMistakeError(error.message || 'Could not start a mistake review.')
+    } finally {
+      setMistakeLoading(false)
+    }
+  }
+
+  async function handleSubmitMistake(event) {
+    event.preventDefault()
+    if (!mistakeSession || !mistakeItem || !mistakeAnswer.trim()) return
+    const submission = pendingMistakeRetry || {
+      answerText: mistakeAnswer.trim(),
+      selfAssessment: mistakeSelfAssessment,
+      idempotencyKey: newIdempotencyKey(),
+    }
+    setPendingMistakeRetry(submission)
+    setMistakeLoading(true)
+    setMistakeError('')
+    try {
+      const retry = await submitMistakeRetry({
+        userId: DEVELOPMENT_USER_ID,
+        sessionId: mistakeSession.id,
+        reviewId: mistakeItem.review_id,
+        answerText: submission.answerText,
+        selfAssessment: submission.selfAssessment,
+        idempotencyKey: submission.idempotencyKey,
+      })
+      const updated = {
+        ...mistakeSession,
+        completed_count: mistakeSession.items.filter((item, index) => index === mistakeIndex || item.retry_attempt_id).length,
+        items: mistakeSession.items.map((item, index) => index === mistakeIndex
+          ? {
+            ...item,
+            answer_text: submission.answerText,
+            answer_status: 'submitted',
+            retry_attempt_id: retry.attempt_id,
+            retry_self_assessment: retry.self_assessment,
+          }
+          : item),
+      }
+      setMistakeSession(updated)
+      setActiveMistakeSession(updated)
+      setMistakeAnswer(submission.answerText)
+      setMistakeRetry(retry)
+      setMistakeHistory(null)
+      setPendingMistakeRetry(null)
+      setScreen('mistake-feedback')
+    } catch (error) {
+      setMistakeError(error.message || 'Could not save your retry. Try submitting it again.')
+    } finally {
+      setMistakeLoading(false)
+    }
+  }
+
+  async function handleSaveAndLeaveMistakes() {
+    if (!mistakeSession || !mistakeItem) {
+      setScreen('picker')
+      return
+    }
+    if (pendingMistakeRetry) {
+      setMistakeError('Retry the same submission before leaving so it is not recorded twice.')
+      return
+    }
+    setMistakeLoading(true)
+    setMistakeError('')
+    try {
+      const saved = await saveMistakeDraft({
+        userId: DEVELOPMENT_USER_ID,
+        sessionId: mistakeSession.id,
+        reviewId: mistakeItem.review_id,
+        answerText: mistakeAnswer,
+      })
+      setMistakeSession(saved)
+      setActiveMistakeSession(saved)
+      setScreen('picker')
+    } catch (error) {
+      setMistakeError(error.message || 'Could not save this draft.')
+    } finally {
+      setMistakeLoading(false)
+    }
+  }
+
+  async function handleRevealMistake() {
+    if (!mistakeSession || !mistakeItem) return
+    setMistakeRevealing(true)
+    setMistakeError('')
+    try {
+      setMistakeHistory(await revealMistakeHistory({
+        userId: DEVELOPMENT_USER_ID,
+        sessionId: mistakeSession.id,
+        reviewId: mistakeItem.review_id,
+      }))
+    } catch (error) {
+      setMistakeError(error.message || 'Could not load the earlier attempt.')
+    } finally {
+      setMistakeRevealing(false)
+    }
+  }
+
+  async function handleAdvanceMistake(nextState) {
+    if (!mistakeSession || !mistakeItem) return
+    setMistakeLoading(true)
+    setMistakeError('')
+    try {
+      await updateMistakeReviewState({
+        userId: DEVELOPMENT_USER_ID,
+        reviewId: mistakeItem.review_id,
+        state: nextState,
+      })
+      const updated = {
+        ...mistakeSession,
+        items: mistakeSession.items.map((item, index) => index === mistakeIndex
+          ? { ...item, review_state: nextState }
+          : item),
+      }
+      setMistakeSession(updated)
+      const nextIndex = mistakeIndex + 1
+      if (nextIndex < updated.items.length) {
+        const nextItem = updated.items[nextIndex]
+        setMistakeIndex(nextIndex)
+        setMistakeAnswer(nextItem.answer_text || '')
+        setMistakeSelfAssessment(nextItem.retry_self_assessment || 'partly')
+        setMistakeRetry(nextItem.retry_attempt_id
+          ? { attempt_id: nextItem.retry_attempt_id, self_assessment: nextItem.retry_self_assessment || 'partly' }
+          : null)
+        setMistakeHistory(null)
+        setPendingMistakeRetry(null)
+        setScreen(nextItem.retry_attempt_id ? 'mistake-feedback' : 'mistake-question')
+      } else {
+        const completed = await submitMistakeSession({ userId: DEVELOPMENT_USER_ID, sessionId: updated.id })
+        setMistakeSession(completed)
+        setActiveMistakeSession(null)
+        setScreen('mistake-complete')
+        await loadMistakeQueue(selectedSubject)
+      }
+    } catch (error) {
+      setMistakeError(error.message || 'Could not update this review item.')
+    } finally {
+      setMistakeLoading(false)
+    }
+  }
+
+  async function handleReopenMistake(reviewId) {
+    setMistakeLoading(true)
+    setMistakeError('')
+    try {
+      await updateMistakeReviewState({ userId: DEVELOPMENT_USER_ID, reviewId, state: 'reopened' })
+      setActiveMistakeSession(null)
+      await loadMistakeQueue(selectedSubject)
+      setScreen('mistakes')
+    } catch (error) {
+      setMistakeError(error.message || 'Could not reopen this review item.')
+    } finally {
+      setMistakeLoading(false)
+    }
+  }
+
   function handleNext() {
     if (isLastQuestion) {
       setScreen('picker')
@@ -444,6 +817,13 @@ export default function App() {
   }
 
   function handleStartOver() {
+    if (screen === 'mistake-question') {
+      handleSaveAndLeaveMistakes()
+      return
+    }
+    if (screen.startsWith('mistake-') && mistakeSession?.state === 'active') {
+      setActiveMistakeSession(mistakeSession)
+    }
     setScreen('picker')
     setQuestionsError('')
     setAttemptError('')
@@ -474,11 +854,20 @@ export default function App() {
               guidance={guidance}
               guidanceLoading={guidanceLoading}
               guidanceError={guidanceError}
+              mistakeQueue={mistakeQueue}
+              mistakeQueueLoading={mistakeQueueLoading}
+              mistakeQueueError={mistakeQueueError}
+              activeMistakeError={activeMistakeError}
+              activeMistakeLoading={activeMistakeLoading}
+              activeMistakeSession={activeMistakeSession}
               onSubjectChange={setSelectedSubject}
               onTopicChange={setTopic}
               onStart={handleStart}
               onStartGuidance={handleStartGuidance}
               onOpenDashboard={handleOpenDashboard}
+              onOpenMistakes={handleOpenMistakes}
+              onResumeMistakes={() => showMistakeSession(activeMistakeSession)}
+              onRetryMistakes={handleRetryMistakes}
               onRetry={loadSubjects}
               onRetryGuidance={() => loadGuidance(selectedSubject)}
             />
@@ -548,7 +937,64 @@ export default function App() {
             result={gradingResult}
             question={question}
             isLastQuestion={isLastQuestion}
+            canAddReview={question.subject.code === '9618'}
             onNext={handleNext}
+            onMarkForReview={handleMarkForReview}
+            markingForReview={markingForReview}
+            markedForReview={markedAttemptIds.has(gradingResult.attempt_id)}
+            markReviewError={markReviewError}
+          />
+        )}
+        {screen === 'mistakes' && (
+          <MistakeQueue
+            queue={mistakeQueue}
+            activeSession={activeMistakeSession}
+            loading={mistakeQueueLoading}
+            error={mistakeQueueError || activeMistakeError || mistakeError}
+            starting={mistakeLoading}
+            onRetry={handleRetryMistakes}
+            onStart={handleStartMistakeSession}
+            onResume={() => showMistakeSession(activeMistakeSession)}
+          />
+        )}
+        {screen === 'mistake-question' && (
+          <MistakeQuestion
+            item={mistakeItem}
+            position={mistakeIndex + 1}
+            total={mistakeSession?.total_count || 0}
+            answer={mistakeAnswer}
+            selfAssessment={mistakeSelfAssessment}
+            saving={mistakeLoading}
+            editingLocked={Boolean(pendingMistakeRetry)}
+            error={mistakeError}
+            onAnswerChange={setMistakeAnswer}
+            onSelfAssessmentChange={setMistakeSelfAssessment}
+            onSubmit={handleSubmitMistake}
+            onSaveAndLeave={handleSaveAndLeaveMistakes}
+          />
+        )}
+        {screen === 'mistake-feedback' && (
+          <MistakeFeedback
+            item={mistakeItem}
+            position={mistakeIndex + 1}
+            total={mistakeSession?.total_count || 0}
+            retry={mistakeRetry}
+            history={mistakeHistory}
+            revealing={mistakeRevealing}
+            error={mistakeError}
+            advancing={mistakeLoading}
+            onReveal={handleRevealMistake}
+            onResolve={() => handleAdvanceMistake('resolved')}
+            onRevisit={() => handleAdvanceMistake('revisit')}
+          />
+        )}
+        {screen === 'mistake-complete' && (
+          <MistakeCompletion
+            session={mistakeSession}
+            loading={mistakeLoading}
+            error={mistakeError}
+            onRetry={() => setMistakeError('')}
+            onReopen={handleReopenMistake}
           />
         )}
       </main>

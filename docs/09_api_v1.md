@@ -48,8 +48,21 @@ The default development server listens on `http://127.0.0.1:8000`.
 - `POST /practice/sessions` creates an active retry-safe session, while the answer and submit endpoints persist its state
   without silently fabricating marks. Practice-answer payload identity is checked against both the authenticated owner
   and the practice-session owner.
+- `GET /mistakes/queue/{user_id}?subject=` returns only original attempts with explicit partial/incorrect scored
+  evidence or an owner-confirmed review. Queue responses include the question/source context but omit prior answer and
+  feedback text. A user can add a just-graded attempt with `POST /mistakes/reviews/confirm`.
+- `POST /mistakes/sessions` creates an idempotent, resumable retry session from eligible `attempt_ids`. The active
+  session can be retrieved with `GET /mistakes/sessions/active/{user_id}?subject=` and by ID with
+  `GET /mistakes/sessions/{session_id}`. `PUT /mistakes/sessions/{session_id}/answers/{review_id}` saves a retry draft.
+- `POST /mistakes/sessions/{session_id}/items/{review_id}/retry` appends a new Attempt linked to the original attempt.
+  It accepts a required owner-scoped idempotency key and a labelled self-assessment, records no marks, and does not call
+  an AI provider or update mastery. Previous answer/feedback is available only after this session item has a submitted
+  retry, through `GET /mistakes/sessions/{session_id}/items/{review_id}/reveal`.
+- `PATCH /mistakes/reviews/{review_id}` records an explicit `resolved`, `revisit`, or `reopened` transition.
+  `POST /mistakes/sessions/{session_id}/submit?user_id=` completes the session only after every item has a retry and a
+  resolved/revisit choice. Self-assessment never implies correctness or mastery.
 - `GET /privacy/export` downloads the authenticated student's profile and app-held attempts, mastery, papers, diagnostics,
-  recommendations, evidence, and practice-session records as JSON. The response is marked `no-store`; shared
+  recommendations, evidence, practice-session, and mistake-review records as JSON. The response is marked `no-store`; shared
   Cambridge question and mark-scheme content is referenced by ID and not copied into the export. The export includes
   AI-generated question text, marks, and mark-scheme points only when the requesting student's paper is the sole owner.
   Generated content with missing or ambiguous ownership is omitted and marked unavailable. The current schema/API does not store

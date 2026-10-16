@@ -226,5 +226,104 @@ class PracticeSessionResponse(BaseModel):
     submitted_at: datetime | None = None
 
 
+class MistakeQueueItem(BaseModel):
+    review_id: int | None = None
+    original_attempt_id: int
+    source: Literal["scored_miss", "user_confirmed"]
+    state: Literal["open", "revisit", "resolved", "reopened"]
+    attempted_at: datetime
+    retry_count: int
+    question: QuestionResponse
+
+
+class MistakeQueueResponse(BaseModel):
+    user_id: int
+    subject: SubjectResponse
+    items: list[MistakeQueueItem]
+
+
+class MistakeReviewConfirm(BaseModel):
+    user_id: PositiveInt
+    attempt_id: PositiveInt
+
+
+class MistakeSessionCreate(BaseModel):
+    user_id: PositiveInt
+    subject: str = Field(min_length=1, max_length=16)
+    attempt_ids: list[PositiveInt] = Field(min_length=1, max_length=100)
+    idempotency_key: str = Field(min_length=1, max_length=128)
+
+
+class MistakeSessionItem(BaseModel):
+    review_id: int
+    original_attempt_id: int
+    review_state: Literal["open", "revisit", "resolved", "reopened"]
+    source: Literal["scored_miss", "user_confirmed"]
+    question: QuestionResponse
+    answer_text: str
+    answer_status: Literal["draft", "submitted"]
+    retry_attempt_id: int | None = None
+    retry_self_assessment: Literal["got_it", "partly", "still_unsure"] | None = None
+    retry_count: int
+
+
+class MistakeSessionResponse(BaseModel):
+    id: int
+    user_id: int
+    subject: SubjectResponse
+    state: Literal["draft", "active", "submitted", "abandoned", "expired"]
+    items: list[MistakeSessionItem]
+    completed_count: int
+    total_count: int
+    created_at: datetime
+    started_at: datetime | None = None
+    submitted_at: datetime | None = None
+
+
+class MistakeDraftSave(BaseModel):
+    user_id: PositiveInt
+    answer_text: str = Field(max_length=20_000)
+
+
+class MistakeRetryCreate(BaseModel):
+    user_id: PositiveInt
+    answer_text: str = Field(min_length=1, max_length=20_000)
+    self_assessment: Literal["got_it", "partly", "still_unsure"]
+    idempotency_key: str = Field(min_length=1, max_length=128)
+
+
+class MistakeRetryResponse(BaseModel):
+    attempt_id: int
+    user_id: int
+    question_id: int
+    retry_of_attempt_id: int
+    self_assessment: Literal["got_it", "partly", "still_unsure"]
+    grading_status: Literal["self_assessed"]
+
+
+class MistakeReviewStateUpdate(BaseModel):
+    user_id: PositiveInt
+    state: Literal["resolved", "revisit", "reopened"]
+
+
+class MistakeRevealedRetry(BaseModel):
+    attempt_id: int
+    answer_text: str
+    self_assessment: Literal["got_it", "partly", "still_unsure"]
+    attempted_at: datetime
+
+
+class MistakeRevealResponse(BaseModel):
+    review_id: int
+    original_attempt_id: int
+    original_answer_text: str
+    marks_earned: float | None = None
+    marks_possible: float | None = None
+    points_hit: list[str]
+    points_missed: list[str]
+    feedback: str | None = None
+    retries: list[MistakeRevealedRetry]
+
+
 class PrivacyDeletionRequest(BaseModel):
     confirmation: Literal["DELETE MY DATA"]

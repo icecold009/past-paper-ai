@@ -36,6 +36,18 @@ from api.schemas import (
     GradingResult,
     MasteryCell,
     MasteryGridResponse,
+    MistakeDraftSave,
+    MistakeQueueItem,
+    MistakeQueueResponse,
+    MistakeReviewConfirm,
+    MistakeReviewStateUpdate,
+    MistakeRevealResponse,
+    MistakeRetryCreate,
+    MistakeRetryResponse,
+    MistakeRevealedRetry,
+    MistakeSessionCreate,
+    MistakeSessionItem,
+    MistakeSessionResponse,
     PaperGenerateRequest,
     GeneratedPaperResponse,
     PracticeAnswerResponse,
@@ -53,6 +65,7 @@ from src.db.models import (
     Diagnostic,
     DiagnosticResponse,
     Mastery,
+    MistakeReview,
     Paper,
     PaperQuestion,
     PracticeAnswer,
@@ -67,6 +80,7 @@ from src.db.session import create_db_engine
 
 
 Grader = Callable[..., GeminiGrade]
+MISTAKE_REVIEW_SUBJECT = "9618"
 
 
 def _subject_response(subject: Subject) -> SubjectResponse:
@@ -201,6 +215,145 @@ def _practice_response(session: Session, practice: PracticeSession) -> PracticeS
             )
             for question_id in question_ids
         ],
+        created_at=practice.created_at,
+        started_at=practice.started_at,
+        submitted_at=practice.submitted_at,
+    )
+
+
+def _is_recorded_mistake(attempt: Attempt) -> bool:
+    return (
+        attempt.retry_of_attempt_id is None
+        and attempt.grading_status in {"graded", "corrected"}
+        and attempt.marks_earned is not None
+        and attempt.marks_possible is not None
+        and attempt.marks_possible > 0
+        and 0 <= attempt.marks_earned < attempt.marks_possible
+    )
+
+
+def _mistake_queue_response(
+    session: Session,
+    *,
+    user: User,
+    subject: Subject,
+) -> MistakeQueueResponse:
+    attempts = session.scalars(
+        select(Attempt)
+        .join(Question, Question.id == Attempt.question_id)
+        .where(
+            Attempt.user_id == user.id,
+            Attempt.retry_of_attempt_id.is_(None),
+            Question.subject_id == subject.id,
+        )
+        .order_by(Attempt.attempted_at.desc(), Attempt.id.desc())
+    ).all()
+    attempt_ids = [attempt.id for attempt in attempts]
+    reviews_by_attempt = {
+        review.original_attempt_id: review
+        for review in session.scalars(
+            select(MistakeReview).where(
+                MistakeReview.user_id == user.id,
+                MistakeReview.original_attempt_id.in_(attempt_ids),
+            )
+        ).all()
+    } if attempt_ids else {}
+    retry_counts: dict[int, int] = {}
+    if attempt_ids:
+        for original_attempt_id in session.scalars(
+            select(Attempt.retry_of_attempt_id).where(Attempt.retry_of_attempt_id.in_(attempt_ids))
+        ).all():
+            if original_attempt_id is not None:
+                retry_counts[original_attempt_id] = retry_counts.get(original_attempt_id, 0) + 1
+
+    items: list[MistakeQueueItem] = []
+    seen_question_ids: set[int] = set()
+    for attempt in attempts:
+        review = reviews_by_attempt.get(attempt.id)
+        scored_miss = _is_recorded_mistake(attempt)
+        user_confirmed = review is not None and review.source == "user_confirmed"
+        if review is not None and review.state == "resolved":
+            continue
+        if not user_confirmed and not scored_miss:
+            continue
+        if attempt.question_id in seen_question_ids:
+            continue
+        question = session.get(Question, attempt.question_id)
+        if question is None:
+            continue
+        _require_generated_question_owner(session, question, user.id)
+        seen_question_ids.add(attempt.question_id)
+        items.append(
+            MistakeQueueItem(
+                review_id=review.id if review is not None else None,
+                original_attempt_id=attempt.id,
+                source=review.source if review is not None else "scored_miss",
+                state=review.state if review is not None else "open",
+                attempted_at=attempt.attempted_at,
+                retry_count=retry_counts.get(attempt.id, 0),
+                question=_question_response(question),
+            )
+        )
+    return MistakeQueueResponse(
+        user_id=user.id,
+        subject=_subject_response(subject),
+        items=items,
+    )
+
+
+def _mistake_session_response(session: Session, practice: PracticeSession) -> MistakeSessionResponse:
+    answers = sorted(practice.answers, key=lambda answer: answer.id)
+    original_attempt_ids = [answer.original_attempt_id for answer in answers if answer.original_attempt_id]
+    review_by_attempt = {
+        review.original_attempt_id: review
+        for review in session.scalars(
+            select(MistakeReview).where(
+                MistakeReview.user_id == practice.user_id,
+                MistakeReview.original_attempt_id.in_(original_attempt_ids),
+            )
+        ).all()
+    } if original_attempt_ids else {}
+    retry_counts: dict[int, int] = {}
+    if original_attempt_ids:
+        for original_attempt_id in session.scalars(
+            select(Attempt.retry_of_attempt_id).where(Attempt.retry_of_attempt_id.in_(original_attempt_ids))
+        ).all():
+            if original_attempt_id is not None:
+                retry_counts[original_attempt_id] = retry_counts.get(original_attempt_id, 0) + 1
+
+    items: list[MistakeSessionItem] = []
+    for answer in answers:
+        original_attempt_id = answer.original_attempt_id
+        if original_attempt_id is None:
+            continue
+        review = review_by_attempt.get(original_attempt_id)
+        question = session.get(Question, answer.question_id)
+        if review is None or question is None:
+            continue
+        _require_generated_question_owner(session, question, practice.user_id)
+        retry = session.get(Attempt, answer.attempt_id) if answer.attempt_id is not None else None
+        items.append(
+            MistakeSessionItem(
+                review_id=review.id,
+                original_attempt_id=original_attempt_id,
+                review_state=review.state,
+                source=review.source,
+                question=_question_response(question),
+                answer_text=answer.answer_text,
+                answer_status=answer.status,
+                retry_attempt_id=answer.attempt_id if answer.status == "submitted" else None,
+                retry_self_assessment=retry.self_assessment if retry is not None else None,
+                retry_count=retry_counts.get(original_attempt_id, 0),
+            )
+        )
+    return MistakeSessionResponse(
+        id=practice.id,
+        user_id=practice.user_id,
+        subject=_subject_response(practice.subject),
+        state=practice.state,
+        items=items,
+        completed_count=sum(item.retry_attempt_id is not None for item in items),
+        total_count=len(items),
         created_at=practice.created_at,
         started_at=practice.started_at,
         submitted_at=practice.submitted_at,
@@ -877,6 +1030,509 @@ def submit_practice_session(
         answer.updated_at = now
     session.commit()
     return _practice_response(session, practice)
+
+
+@app.get("/mistakes/queue/{user_id}", response_model=MistakeQueueResponse)
+def get_mistake_queue(
+    user_id: int,
+    subject: str = Query(min_length=1, max_length=16),
+    auth: AuthContext = Depends(get_auth_context),
+    session: Session = Depends(_session_for_request),
+) -> MistakeQueueResponse:
+    user = _require_user_access(session, auth, user_id)
+    db_subject = session.scalar(select(Subject).where(Subject.code == subject.strip()))
+    if db_subject is None:
+        raise HTTPException(status_code=404, detail=f"Subject {subject} was not found")
+    if db_subject.code != MISTAKE_REVIEW_SUBJECT:
+        raise HTTPException(status_code=422, detail=f"Mistake review is currently limited to subject {MISTAKE_REVIEW_SUBJECT}")
+    return _mistake_queue_response(session, user=user, subject=db_subject)
+
+
+@app.post("/mistakes/reviews/confirm", response_model=MistakeQueueItem, status_code=status.HTTP_201_CREATED)
+def confirm_mistake_for_review(
+    payload: MistakeReviewConfirm,
+    auth: AuthContext = Depends(get_auth_context),
+    session: Session = Depends(_session_for_request),
+) -> MistakeQueueItem:
+    user = _require_user_access(session, auth, payload.user_id)
+    attempt = session.get(Attempt, payload.attempt_id)
+    if attempt is None or attempt.user_id != user.id or attempt.retry_of_attempt_id is not None:
+        raise HTTPException(status_code=404, detail="Original attempt was not found")
+    question = session.get(Question, attempt.question_id)
+    if question is None:
+        raise HTTPException(status_code=404, detail="Question was not found")
+    if question.subject.code != MISTAKE_REVIEW_SUBJECT:
+        raise HTTPException(status_code=422, detail=f"Mistake review is currently limited to subject {MISTAKE_REVIEW_SUBJECT}")
+    _require_generated_question_owner(session, question, user.id)
+
+    review = session.scalar(
+        select(MistakeReview).where(
+            MistakeReview.user_id == user.id,
+            MistakeReview.original_attempt_id == attempt.id,
+        )
+    )
+    if review is None:
+        review = MistakeReview(
+            user_id=user.id,
+            original_attempt_id=attempt.id,
+            source="user_confirmed",
+            state="open",
+            updated_at=datetime.now(timezone.utc),
+        )
+        session.add(review)
+        session.flush()
+    elif review.state == "resolved":
+        raise HTTPException(status_code=409, detail="Reopen this resolved review explicitly before adding it again")
+
+    queue = _mistake_queue_response(
+        session,
+        user=user,
+        subject=question.subject,
+    )
+    item = next((candidate for candidate in queue.items if candidate.original_attempt_id == attempt.id), None)
+    if item is None:
+        session.rollback()
+        raise HTTPException(status_code=409, detail="This attempt is already superseded by a newer review for the question")
+    session.commit()
+    return item
+
+
+@app.post("/mistakes/sessions", response_model=MistakeSessionResponse, status_code=status.HTTP_201_CREATED)
+def create_mistake_review_session(
+    payload: MistakeSessionCreate,
+    auth: AuthContext = Depends(get_auth_context),
+    session: Session = Depends(_session_for_request),
+) -> MistakeSessionResponse:
+    user = _require_user_access(session, auth, payload.user_id)
+    db_subject = session.scalar(select(Subject).where(Subject.code == payload.subject.strip()))
+    if db_subject is None:
+        raise HTTPException(status_code=404, detail=f"Subject {payload.subject} was not found")
+    if db_subject.code != MISTAKE_REVIEW_SUBJECT:
+        raise HTTPException(status_code=422, detail=f"Mistake review is currently limited to subject {MISTAKE_REVIEW_SUBJECT}")
+
+    attempt_ids = list(dict.fromkeys(payload.attempt_ids))
+    existing = session.scalar(
+        select(PracticeSession).where(
+            PracticeSession.user_id == user.id,
+            PracticeSession.idempotency_key == payload.idempotency_key,
+        )
+    )
+    if existing is not None:
+        if existing.session_type != "mistake_review" or existing.subject_id != db_subject.id:
+            raise HTTPException(status_code=409, detail="This idempotency key belongs to another session")
+        existing_attempt_ids = {answer.original_attempt_id for answer in existing.answers}
+        if existing_attempt_ids != set(attempt_ids):
+            raise HTTPException(status_code=409, detail="This idempotency key was used for a different review queue")
+        return _mistake_session_response(session, existing)
+
+    attempts = list(
+        session.scalars(
+            select(Attempt)
+            .join(Question, Question.id == Attempt.question_id)
+            .where(
+                Attempt.id.in_(attempt_ids),
+                Attempt.user_id == user.id,
+                Attempt.retry_of_attempt_id.is_(None),
+                Question.subject_id == db_subject.id,
+            )
+        ).all()
+    )
+    attempts_by_id = {attempt.id: attempt for attempt in attempts}
+    if len(attempts_by_id) != len(attempt_ids):
+        raise HTTPException(status_code=404, detail="One or more original attempts are unavailable")
+    if len({attempt.question_id for attempt in attempts}) != len(attempts):
+        raise HTTPException(status_code=422, detail="Choose at most one original attempt per question in a session")
+    attempts = [attempts_by_id[attempt_id] for attempt_id in attempt_ids]
+
+    reviews_by_attempt = {
+        review.original_attempt_id: review
+        for review in session.scalars(
+            select(MistakeReview).where(
+                MistakeReview.user_id == user.id,
+                MistakeReview.original_attempt_id.in_(attempt_ids),
+            )
+        ).all()
+    }
+    for attempt in attempts:
+        review = reviews_by_attempt.get(attempt.id)
+        if review is not None and review.state == "resolved":
+            raise HTTPException(status_code=409, detail="Reopen a resolved review before starting it again")
+        if review is None and not _is_recorded_mistake(attempt):
+            raise HTTPException(status_code=422, detail="Only a recorded miss or an explicitly confirmed attempt can be reviewed")
+        question = session.get(Question, attempt.question_id)
+        if question is None:
+            raise HTTPException(status_code=404, detail="Question was not found")
+        _require_generated_question_owner(session, question, user.id)
+        if review is None:
+            review = MistakeReview(
+                user_id=user.id,
+                original_attempt_id=attempt.id,
+                source="scored_miss",
+                state="open",
+                updated_at=datetime.now(timezone.utc),
+            )
+            session.add(review)
+            reviews_by_attempt[attempt.id] = review
+
+    active_session_ids = select(PracticeSession.id).where(
+        PracticeSession.user_id == user.id,
+        PracticeSession.session_type == "mistake_review",
+        PracticeSession.state.in_({"draft", "active"}),
+    )
+    already_active = session.scalar(
+        select(PracticeAnswer.original_attempt_id)
+        .where(
+            PracticeAnswer.session_id.in_(active_session_ids),
+            PracticeAnswer.original_attempt_id.in_(attempt_ids),
+        )
+        .limit(1)
+    )
+    if already_active is not None:
+        raise HTTPException(status_code=409, detail="Resume the active session before starting another")
+
+    now = datetime.now(timezone.utc)
+    practice = PracticeSession(
+        user_id=user.id,
+        subject_id=db_subject.id,
+        state="active",
+        session_type="mistake_review",
+        idempotency_key=payload.idempotency_key,
+        created_at=now,
+        started_at=now,
+    )
+    session.add(practice)
+    session.flush()
+    practice.answers = [
+        PracticeAnswer(question_id=attempt.question_id, original_attempt_id=attempt.id)
+        for attempt in attempts
+    ]
+    session.commit()
+    return _mistake_session_response(session, practice)
+
+
+@app.get("/mistakes/sessions/active/{user_id}", response_model=MistakeSessionResponse | None)
+def get_active_mistake_review_session(
+    user_id: int,
+    subject: str = Query(min_length=1, max_length=16),
+    auth: AuthContext = Depends(get_auth_context),
+    session: Session = Depends(_session_for_request),
+) -> MistakeSessionResponse | None:
+    user = _require_user_access(session, auth, user_id)
+    db_subject = session.scalar(select(Subject).where(Subject.code == subject.strip()))
+    if db_subject is None:
+        raise HTTPException(status_code=404, detail=f"Subject {subject} was not found")
+    if db_subject.code != MISTAKE_REVIEW_SUBJECT:
+        raise HTTPException(status_code=422, detail=f"Mistake review is currently limited to subject {MISTAKE_REVIEW_SUBJECT}")
+    practice = session.scalar(
+        select(PracticeSession)
+        .where(
+            PracticeSession.user_id == user.id,
+            PracticeSession.subject_id == db_subject.id,
+            PracticeSession.session_type == "mistake_review",
+            PracticeSession.state.in_({"draft", "active"}),
+        )
+        .order_by(PracticeSession.created_at.desc(), PracticeSession.id.desc())
+        .limit(1)
+    )
+    return _mistake_session_response(session, practice) if practice is not None else None
+
+
+@app.get("/mistakes/sessions/{session_id}", response_model=MistakeSessionResponse)
+def get_mistake_review_session(
+    session_id: int,
+    user_id: int = Query(ge=1),
+    auth: AuthContext = Depends(get_auth_context),
+    session: Session = Depends(_session_for_request),
+) -> MistakeSessionResponse:
+    practice = session.get(PracticeSession, session_id)
+    if practice is None or practice.session_type != "mistake_review":
+        raise HTTPException(status_code=404, detail="Mistake review session was not found")
+    _require_user_access(session, auth, user_id)
+    if practice.user_id != user_id:
+        raise HTTPException(status_code=403, detail="You may only access your own mistake review session")
+    return _mistake_session_response(session, practice)
+
+
+@app.put("/mistakes/sessions/{session_id}/answers/{review_id}", response_model=MistakeSessionResponse)
+def save_mistake_review_draft(
+    session_id: int,
+    review_id: int,
+    payload: MistakeDraftSave,
+    auth: AuthContext = Depends(get_auth_context),
+    session: Session = Depends(_session_for_request),
+) -> MistakeSessionResponse:
+    practice = session.get(PracticeSession, session_id)
+    if practice is None or practice.session_type != "mistake_review":
+        raise HTTPException(status_code=404, detail="Mistake review session was not found")
+    user = _require_user_access(session, auth, practice.user_id)
+    if payload.user_id != user.id:
+        raise HTTPException(status_code=403, detail="You may only save your own review answer")
+    if practice.state not in {"draft", "active"}:
+        raise HTTPException(status_code=409, detail="This review session is no longer editable")
+    review = session.get(MistakeReview, review_id)
+    answer = session.scalar(
+        select(PracticeAnswer).where(
+            PracticeAnswer.session_id == session_id,
+            PracticeAnswer.original_attempt_id == review.original_attempt_id if review is not None else False,
+        )
+    )
+    if review is None or review.user_id != user.id or answer is None:
+        raise HTTPException(status_code=404, detail="Review item is not part of this session")
+    if answer.status == "submitted":
+        raise HTTPException(status_code=409, detail="This answer has already been submitted")
+    answer.answer_text = payload.answer_text
+    answer.updated_at = datetime.now(timezone.utc)
+    session.commit()
+    return _mistake_session_response(session, practice)
+
+
+@app.post("/mistakes/sessions/{session_id}/items/{review_id}/retry", response_model=MistakeRetryResponse, status_code=status.HTTP_201_CREATED)
+def submit_mistake_retry(
+    session_id: int,
+    review_id: int,
+    payload: MistakeRetryCreate,
+    auth: AuthContext = Depends(get_auth_context),
+    session: Session = Depends(_session_for_request),
+) -> MistakeRetryResponse:
+    practice = session.get(PracticeSession, session_id)
+    if practice is None or practice.session_type != "mistake_review":
+        raise HTTPException(status_code=404, detail="Mistake review session was not found")
+    user = _require_user_access(session, auth, practice.user_id)
+    if payload.user_id != user.id:
+        raise HTTPException(status_code=403, detail="You may only submit your own review answer")
+    review = session.get(MistakeReview, review_id)
+    answer = session.scalar(
+        select(PracticeAnswer).where(
+            PracticeAnswer.session_id == session_id,
+            PracticeAnswer.original_attempt_id == review.original_attempt_id if review is not None else False,
+        )
+    )
+    if review is None or review.user_id != user.id or answer is None:
+        raise HTTPException(status_code=404, detail="Review item is not part of this session")
+    original = session.get(Attempt, review.original_attempt_id)
+    if original is None or original.user_id != user.id or original.retry_of_attempt_id is not None:
+        raise HTTPException(status_code=404, detail="Original attempt was not found")
+
+    existing_retry = session.scalar(
+        select(Attempt).where(
+            Attempt.user_id == user.id,
+            Attempt.retry_submission_key == payload.idempotency_key,
+        )
+    )
+    if existing_retry is not None:
+        if (
+            existing_retry.retry_of_attempt_id != original.id
+            or existing_retry.submitted_answer_text != payload.answer_text
+            or existing_retry.self_assessment != payload.self_assessment
+        ):
+            raise HTTPException(status_code=409, detail="This idempotency key belongs to a different retry")
+        answer.answer_text = existing_retry.submitted_answer_text
+        answer.status = "submitted"
+        answer.attempt_id = existing_retry.id
+        answer.updated_at = datetime.now(timezone.utc)
+        session.commit()
+        return MistakeRetryResponse(
+            attempt_id=existing_retry.id,
+            user_id=user.id,
+            question_id=existing_retry.question_id,
+            retry_of_attempt_id=original.id,
+            self_assessment=existing_retry.self_assessment,
+            grading_status="self_assessed",
+        )
+
+    if practice.state not in {"draft", "active"}:
+        raise HTTPException(status_code=409, detail="This review session is no longer active")
+    if answer.status == "submitted" or answer.attempt_id is not None:
+        raise HTTPException(status_code=409, detail="This item already has a retry in this session")
+    if not payload.answer_text.strip():
+        raise HTTPException(status_code=422, detail="Write a retry answer before submitting")
+    question = session.get(Question, original.question_id)
+    if question is None:
+        raise HTTPException(status_code=404, detail="Question was not found")
+    _require_generated_question_owner(session, question, user.id)
+
+    retry = Attempt(
+        user_id=user.id,
+        question_id=original.question_id,
+        submitted_answer_text=payload.answer_text,
+        points_awarded={},
+        marks_earned=None,
+        marks_possible=None,
+        grading_model=None,
+        grading_policy_version="self-assessment-v1",
+        grading_status="self_assessed",
+        retry_of_attempt_id=original.id,
+        retry_submission_key=payload.idempotency_key,
+        self_assessment=payload.self_assessment,
+        attempted_at=datetime.now(timezone.utc),
+    )
+    session.add(retry)
+    session.flush()
+    answer.answer_text = payload.answer_text
+    answer.status = "submitted"
+    answer.attempt_id = retry.id
+    answer.updated_at = datetime.now(timezone.utc)
+    session.commit()
+    return MistakeRetryResponse(
+        attempt_id=retry.id,
+        user_id=user.id,
+        question_id=retry.question_id,
+        retry_of_attempt_id=original.id,
+        self_assessment=payload.self_assessment,
+        grading_status="self_assessed",
+    )
+
+
+@app.get("/mistakes/sessions/{session_id}/items/{review_id}/reveal", response_model=MistakeRevealResponse)
+def reveal_previous_mistake_attempt(
+    session_id: int,
+    review_id: int,
+    user_id: int = Query(ge=1),
+    auth: AuthContext = Depends(get_auth_context),
+    session: Session = Depends(_session_for_request),
+) -> MistakeRevealResponse:
+    practice = session.get(PracticeSession, session_id)
+    if practice is None or practice.session_type != "mistake_review":
+        raise HTTPException(status_code=404, detail="Mistake review session was not found")
+    _require_user_access(session, auth, user_id)
+    if practice.user_id != user_id:
+        raise HTTPException(status_code=403, detail="You may only reveal your own review history")
+    review = session.get(MistakeReview, review_id)
+    answer = session.scalar(
+        select(PracticeAnswer).where(
+            PracticeAnswer.session_id == session_id,
+            PracticeAnswer.original_attempt_id == review.original_attempt_id if review is not None else False,
+        )
+    )
+    if review is None or review.user_id != user_id or answer is None:
+        raise HTTPException(status_code=404, detail="Review item is not part of this session")
+    if answer.attempt_id is None:
+        raise HTTPException(status_code=409, detail="Submit a fresh retry before revealing the previous answer")
+    original = session.get(Attempt, review.original_attempt_id)
+    if original is None or original.user_id != user_id:
+        raise HTTPException(status_code=404, detail="Original attempt was not found")
+    retry_rows = session.scalars(
+        select(Attempt)
+        .where(
+            Attempt.user_id == user_id,
+            Attempt.retry_of_attempt_id == original.id,
+            Attempt.grading_status == "self_assessed",
+        )
+        .order_by(Attempt.attempted_at, Attempt.id)
+    ).all()
+    if not retry_rows:
+        raise HTTPException(status_code=409, detail="Submit a fresh retry before revealing the previous answer")
+
+    answer.previous_answer_revealed_at = datetime.now(timezone.utc)
+    session.commit()
+    prior_result = original.points_awarded if isinstance(original.points_awarded, dict) else {}
+    return MistakeRevealResponse(
+        review_id=review.id,
+        original_attempt_id=original.id,
+        original_answer_text=original.submitted_answer_text,
+        marks_earned=original.marks_earned,
+        marks_possible=original.marks_possible,
+        points_hit=prior_result.get("points_hit", []) if isinstance(prior_result.get("points_hit", []), list) else [],
+        points_missed=prior_result.get("points_missed", []) if isinstance(prior_result.get("points_missed", []), list) else [],
+        feedback=prior_result.get("feedback") if isinstance(prior_result.get("feedback"), str) else None,
+        retries=[
+            MistakeRevealedRetry(
+                attempt_id=retry.id,
+                answer_text=retry.submitted_answer_text,
+                self_assessment=retry.self_assessment,
+                attempted_at=retry.attempted_at,
+            )
+            for retry in retry_rows
+            if retry.self_assessment is not None
+        ],
+    )
+
+
+@app.patch("/mistakes/reviews/{review_id}", response_model=MistakeQueueItem)
+def update_mistake_review_state(
+    review_id: int,
+    payload: MistakeReviewStateUpdate,
+    auth: AuthContext = Depends(get_auth_context),
+    session: Session = Depends(_session_for_request),
+) -> MistakeQueueItem:
+    user = _require_user_access(session, auth, payload.user_id)
+    review = session.get(MistakeReview, review_id)
+    if review is None or review.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Mistake review was not found")
+    allowed = {
+        "open": {"resolved", "revisit"},
+        "reopened": {"resolved", "revisit", "reopened"},
+        "revisit": {"resolved", "revisit"},
+        "resolved": {"resolved", "reopened"},
+    }
+    if payload.state not in allowed[review.state]:
+        raise HTTPException(status_code=409, detail=f"Cannot change review state from {review.state} to {payload.state}")
+    review.state = payload.state
+    review.updated_at = datetime.now(timezone.utc)
+    original = session.get(Attempt, review.original_attempt_id)
+    if original is None or original.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Original attempt was not found")
+    question = session.get(Question, original.question_id)
+    if question is None:
+        raise HTTPException(status_code=404, detail="Question was not found")
+    _require_generated_question_owner(session, question, user.id)
+    retry_count = session.scalar(
+        select(func.count()).select_from(Attempt).where(Attempt.retry_of_attempt_id == original.id)
+    ) or 0
+    session.commit()
+    return MistakeQueueItem(
+        review_id=review.id,
+        original_attempt_id=original.id,
+        source=review.source,
+        state=review.state,
+        attempted_at=original.attempted_at,
+        retry_count=retry_count,
+        question=_question_response(question),
+    )
+
+
+@app.post("/mistakes/sessions/{session_id}/submit", response_model=MistakeSessionResponse)
+def submit_mistake_review_session(
+    session_id: int,
+    user_id: int = Query(ge=1),
+    auth: AuthContext = Depends(get_auth_context),
+    session: Session = Depends(_session_for_request),
+) -> MistakeSessionResponse:
+    practice = session.get(PracticeSession, session_id)
+    if practice is None or practice.session_type != "mistake_review":
+        raise HTTPException(status_code=404, detail="Mistake review session was not found")
+    _require_user_access(session, auth, user_id)
+    if practice.user_id != user_id:
+        raise HTTPException(status_code=403, detail="You may only submit your own mistake review session")
+    if practice.state == "submitted":
+        return _mistake_session_response(session, practice)
+    if practice.state not in {"draft", "active"}:
+        raise HTTPException(status_code=409, detail="This review session cannot be submitted")
+    incomplete = [
+        answer.id
+        for answer in practice.answers
+        if answer.attempt_id is None
+        or answer.original_attempt_id is None
+        or (
+            (review := session.scalar(
+                select(MistakeReview).where(
+                    MistakeReview.user_id == user_id,
+                    MistakeReview.original_attempt_id == answer.original_attempt_id,
+                )
+            )) is None
+            or review.state not in {"resolved", "revisit"}
+        )
+    ]
+    if incomplete:
+        raise HTTPException(status_code=422, detail="Retry every item and choose resolved or revisit before finishing")
+    now = datetime.now(timezone.utc)
+    practice.state = "submitted"
+    practice.submitted_at = now
+    for answer in practice.answers:
+        answer.status = "submitted"
+        answer.updated_at = now
+    session.commit()
+    return _mistake_session_response(session, practice)
 
 
 @app.post("/papers/generate", response_model=GeneratedPaperResponse, status_code=status.HTTP_201_CREATED)

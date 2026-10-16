@@ -107,6 +107,9 @@ The table is schema scaffolding. Authentication and email verification are not i
 | `marks_earned` | integer | awarded marks |
 | `marks_possible` | integer | marks available at submission |
 | `attempted_at` | timestamp with timezone | attempt time |
+| `retry_of_attempt_id` | nullable self-reference | original attempt for an append-only mistake retry |
+| `retry_submission_key` | string nullable | owner-scoped idempotency key for a retry submission |
+| `self_assessment` | string nullable | learner's labelled self-assessment when no trusted marking result exists |
 
 `points_awarded` is intentionally flexible while grading semantics are being designed. Future versions should define a versioned JSON contract rather than relying on undocumented keys.
 
@@ -150,13 +153,21 @@ The composite primary key is `paper_id + question_id`; `position` preserves orde
 ### 3.9 Personalization and practice foundation
 
 The current migration also implements `curriculum_chapters`, `question_chapter_mappings`, `diagnostic_evidence`,
-`recommendations`, `diagnostics`, `diagnostic_responses`, `practice_sessions`, and `practice_answers`. Chapter and
+`recommendations`, `diagnostics`, `diagnostic_responses`, `practice_sessions`, `practice_answers`, and
+`mistake_reviews`. Chapter and
 question mappings remain explicitly reviewable; recommendation queries use only mappings and chapters with
 `review_status = 'approved'`. Diagnostic responses may be stored before scoring, while practice submission never
 creates marks without a separate grading result.
 
 Users now carry role, school, grade-stage, and active-state metadata. These fields support the application ownership
 boundary but do not replace a school-approved identity provider or PostgreSQL RLS policy.
+
+`practice_sessions.session_type` distinguishes ordinary practice from mistake review. A review session links each
+`practice_answers` row to its original `attempts` record and records when prior feedback is deliberately revealed.
+The `mistake_reviews` table is unique per owner and original attempt, with `open`, `revisit`, `resolved`, or
+`reopened` state and source provenance (`scored_miss` or `user_confirmed`). Mistake retry submissions create new
+`attempts` rows linked by `retry_of_attempt_id`; they preserve the original row and use `self_assessment` with no
+marks when trusted marking evidence is unavailable. These retries do not update mastery or invoke AI grading.
 
 ## 4. Relationships and deletion behavior
 
